@@ -395,6 +395,7 @@ def build_system_prompt(
     6. Tone & style section（含 GitHub 格式）
     7. Output efficiency section
     8. Session-specific guidance (动态)
+    8.5 CLAUDE.md 项目指令 (动态)
     9. Memory (动态)
     10. Environment info (动态，含模型名/Claude Code 渠道)
     11. Language (动态)
@@ -439,6 +440,13 @@ def build_system_prompt(
     if session_guidance:
         parts.append("")
         parts.append(session_guidance)
+
+    # 8.5 CLAUDE.md 项目指令
+    from cc_python.claudemd import load_claude_md
+    claude_md = load_claude_md()
+    if claude_md:
+        parts.append("")
+        parts.append(claude_md)
 
     # 9. Memory
     memory = load_memory_prompt()

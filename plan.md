@@ -8,7 +8,7 @@
 | 2. System Prompt 完善 | 补全完整系统指令 | ✅ 已完成 |
 | 3. 权限系统 | 工具执行前询问用户确认 | ✅ 已完成 |
 | 4. Hooks 系统 | 用户可配置的 shell 命令钩子 | ✅ 已完成 |
-| 5. CLAUDE.md | 项目级持久化指令读取注入 | 🔲 未实现 |
+| 5. CLAUDE.md | 项目级持久化指令读取注入 | ✅ 已完成 |
 | 6. 上下文压缩 | 对话过长时自动压缩历史消息 | 🔲 未实现 |
 | 7. Message + Attachments 增强 | 消息规范化 + 附件处理 | 🔲 未实现 |
 | 8. 高级工具 | Agent/Task/AskUserQuestion | 🔲 未实现 |
@@ -191,7 +191,7 @@ has_permission_to_use_tool(tool, input):
 
 ---
 
-## 阶段 5: CLAUDE.md 🔲
+## 阶段 5: CLAUDE.md ✅
 
 对应 TS: `utils/claudemd.ts`（1479 行）
 
