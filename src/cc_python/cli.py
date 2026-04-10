@@ -19,12 +19,75 @@ from cc_python.api import create_client, query_with_tools
 from cc_python.config import get_effective_model
 from cc_python.context import build_system_prompt
 from cc_python.messages import create_assistant_message, create_user_message
+from cc_python.permissions import (
+    PermissionBehavior,
+    PermissionContext,
+    PermissionResult,
+    build_permission_context,
+)
 from cc_python.session import SessionStorage, list_sessions, load_session
 from cc_python.tools import get_all_tools
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 console = Console()
+
+
+async def _permission_prompt(
+    tool_name: str,
+    tool_input: dict,
+    message: str,
+) -> PermissionResult:
+    """权限确认提示。对应 TS useCanUseTool.tsx 的用户交互部分。"""
+    console.print()
+    console.rule("[bold yellow]权限请求[/]")
+    console.print(f"[bold]{tool_name}[/] — {message}")
+
+    # 显示操作摘要
+    if tool_name == "bash":
+        cmd = tool_input.get("command", "")
+        console.print(f"  [dim]命令:[/] {cmd[:200]}")
+    elif tool_name in ("write_file", "edit_file"):
+        console.print(f"  [dim]文件:[/] {tool_input.get('file_path', '')}")
+
+    console.print()
+    console.print("[bold]选择:[/]")
+    console.print("  [1] Allow once    (本次允许)")
+    console.print("  [2] Always allow  (始终允许同类操作)")
+    console.print("  [3] Deny          (拒绝)")
+    console.print("  [4] Always deny   (始终拒绝同类操作)")
+
+    try:
+        choice = console.input("[bold green]选择 [1-4]: [/]").strip()
+    except (KeyboardInterrupt, EOFError):
+        choice = "3"
+
+    if choice == "1":
+        return PermissionResult(behavior=PermissionBehavior.ALLOW)
+    elif choice == "2":
+        return PermissionResult(
+            behavior=PermissionBehavior.ALLOW,
+            rule_updates=[{
+                "tool_name": tool_name,
+                "pattern": "*",
+                "behavior": "allow",
+            }],
+        )
+    elif choice == "3":
+        return PermissionResult(
+            behavior=PermissionBehavior.DENY,
+            message="用户拒绝",
+        )
+    else:
+        return PermissionResult(
+            behavior=PermissionBehavior.DENY,
+            message="用户拒绝",
+            rule_updates=[{
+                "tool_name": tool_name,
+                "pattern": "*",
+                "behavior": "deny",
+            }],
+        )
 
 
 async def _stream_response_with_tools(
@@ -35,6 +98,7 @@ async def _stream_response_with_tools(
         messages: list[dict],
         tools: list,
         storage: SessionStorage | None = None,
+        permission_context: PermissionContext | None = None,
 ) -> str:
     """带工具调用的流式响应。
 
@@ -79,6 +143,8 @@ async def _stream_response_with_tools(
         tools=tools,
         on_text=on_text,
         on_tool_call=on_tool_call,
+        permission_context=permission_context,
+        on_permission_ask=_permission_prompt,
     )
 
     # 最终渲染完整响应
@@ -94,15 +160,22 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     storage = SessionStorage()
     storage.start_session()
 
-    system_prompt = build_system_prompt()
-    messages = [create_user_message(prompt)]
     client, client_format = create_client()
     tools = get_all_tools()
+    enabled_tools = {t.name for t in tools}
+    permission_context = build_permission_context()
+
+    system_prompt = build_system_prompt(
+        model=model,
+        enabled_tools=enabled_tools,
+    )
+    messages = [create_user_message(prompt)]
 
     storage.record_user_message(prompt)
 
     response = await _stream_response_with_tools(
         client, client_format, model, system_prompt, messages, tools, storage,
+        permission_context=permission_context,
     )
 
     storage.record_assistant_message(response)
@@ -156,16 +229,23 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         history_messages = []
         storage.start_session()
 
-    system_prompt = build_system_prompt()
-    messages = list(history_messages)
     client, client_format = create_client()
     tools = get_all_tools()
+    enabled_tools = {t.name for t in tools}
+    permission_context = build_permission_context()
+
+    system_prompt = build_system_prompt(
+        model=model,
+        enabled_tools=enabled_tools,
+    )
+    messages = list(history_messages)
 
     console.print(
         Panel(
             Text.from_markup(
                 f"[bold]Claude Code (Python)[/] — model: {model}\n"
                 f"工具: {', '.join(t.name for t in tools)}\n"
+                f"权限模式: {permission_context.mode.value}\n"
                 f"会话: {storage.session_id[:8] if storage.session_id else 'N/A'}...\n"
                 f"输入消息开始对话，Ctrl+C 退出"
             ),
@@ -193,6 +273,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
             full_response = await _stream_response_with_tools(
                 client, client_format, model, system_prompt, messages, tools, storage,
+                permission_context=permission_context,
             )
 
             messages.append(create_assistant_message(full_response))

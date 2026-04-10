@@ -31,6 +31,12 @@ from cc_python.config import (
     get_effective_api_key,
     get_effective_base_url,
 )
+from cc_python.permissions import (
+    PermissionBehavior,
+    PermissionContext,
+    PermissionResult,
+    check_permission,
+)
 from cc_python.tools.base import Tool
 
 
@@ -223,6 +229,8 @@ async def _execute_tools_concurrent(
     tool_use_blocks: list[dict[str, Any]],
     tools: list[Tool],
     on_tool_call: Any = None,
+    permission_context: PermissionContext | None = None,
+    on_permission_ask: Any = None,
 ) -> list[dict[str, Any]]:
     """并发执行工具调用。
 
@@ -231,10 +239,12 @@ async def _execute_tools_concurrent(
     - runToolsConcurrently() — 安全工具并行执行
     - runToolsSerially() — 不安全工具串行执行
 
-    策略：
-    1. 将 tool_use_blocks 分为 safe（可并行）和 unsafe（串行）两组
-    2. safe 组用 asyncio.gather 并行执行（上限 MAX_CONCURRENT_TOOLS）
-    3. unsafe 组逐个串行执行
+    新增权限检查：
+    执行前调用 check_permission，ASK 时通过 on_permission_ask 回调询问用户。
+
+    Args:
+        permission_context: 权限上下文，None 则跳过权限检查
+        on_permission_ask: 异步回调 async (tool_name, input, message) -> PermissionResult
     """
     from cc_python.tools import find_tool_by_name
 
@@ -256,7 +266,61 @@ async def _execute_tools_concurrent(
                 "tool_use_id": tb["id"],
                 "content": result_text,
             })
-        elif tool.is_concurrency_safe:
+            continue
+
+        # --- 权限检查 ---
+        if permission_context:
+            perm_result = check_permission(tb["name"], tb["input"], permission_context)
+
+            if perm_result.behavior == PermissionBehavior.DENY:
+                result_text = f"权限拒绝: {perm_result.message}"
+                if on_tool_call:
+                    on_tool_call(tb["name"], tb["input"], result_text)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tb["id"],
+                    "content": result_text,
+                })
+                continue
+
+            if perm_result.behavior == PermissionBehavior.ASK:
+                if on_permission_ask:
+                    user_result = await on_permission_ask(
+                        tb["name"], tb["input"], perm_result.message,
+                    )
+                    # 持久化用户选择的规则
+                    if user_result.rule_updates:
+                        from cc_python.permissions import PermissionRule, save_permission_rule
+                        for update in user_result.rule_updates:
+                            save_permission_rule(PermissionRule(
+                                tool_name=update["tool_name"],
+                                pattern=update.get("pattern", "*"),
+                                behavior=PermissionBehavior(update["behavior"]),
+                                source="user_settings",
+                            ))
+
+                    if user_result.behavior == PermissionBehavior.DENY:
+                        result_text = f"权限拒绝: {user_result.message or '用户拒绝'}"
+                        if on_tool_call:
+                            on_tool_call(tb["name"], tb["input"], result_text)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tb["id"],
+                            "content": result_text,
+                        })
+                        continue
+                else:
+                    # 没有回调时默认拒绝
+                    result_text = f"权限拒绝: 需要用户确认但无交互界面"
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": tb["id"],
+                        "content": result_text,
+                    })
+                    continue
+        # --- 权限检查结束 ---
+
+        if tool.is_concurrency_safe:
             safe_tasks.append((tb, tool))
         else:
             unsafe_tasks.append((tb, tool))
@@ -310,8 +374,10 @@ async def query_with_tools(
     messages: list[dict[str, Any]],
     tools: list[Tool],
     max_tokens: int = 4096,
-    on_text: Any = None,  # 可选回调：on_text(chunk: str)
-    on_tool_call: Any = None,  # 可选回调：on_tool_call(name, input, result)
+    on_text: Any = None,
+    on_tool_call: Any = None,
+    permission_context: PermissionContext | None = None,
+    on_permission_ask: Any = None,
 ) -> str:
     """带工具调用的完整查询循环。
 
@@ -326,6 +392,8 @@ async def query_with_tools(
     Args:
         on_text: 流式文本回调（用于实时渲染）
         on_tool_call: 工具调用回调（用于显示工具执行过程）
+        permission_context: 权限上下文
+        on_permission_ask: 权限确认回调
     """
     from cc_python.tools import tool_to_api_schema
 
@@ -386,6 +454,7 @@ async def query_with_tools(
         # 对应 TS toolOrchestration.ts runTools()
         tool_results = await _execute_tools_concurrent(
             tool_use_blocks, tools, on_tool_call,
+            permission_context, on_permission_ask,
         )
 
         # 3. 将 tool_result 作为 user message 追加
