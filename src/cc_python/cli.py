@@ -18,6 +18,7 @@ from rich.text import Text
 from cc_python.api import create_client, query_with_tools
 from cc_python.config import get_effective_model
 from cc_python.context import build_system_prompt
+from cc_python.hooks import HookEvent, dispatch_hooks
 from cc_python.messages import create_assistant_message, create_user_message
 from cc_python.permissions import (
     PermissionBehavior,
@@ -99,6 +100,7 @@ async def _stream_response_with_tools(
         tools: list,
         storage: SessionStorage | None = None,
         permission_context: PermissionContext | None = None,
+        session_id: str = "",
 ) -> str:
     """带工具调用的流式响应。
 
@@ -145,6 +147,7 @@ async def _stream_response_with_tools(
         on_tool_call=on_tool_call,
         permission_context=permission_context,
         on_permission_ask=_permission_prompt,
+        session_id=session_id,
     )
 
     # 最终渲染完整响应
@@ -160,6 +163,12 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     storage = SessionStorage()
     storage.start_session()
 
+    # SessionStart Hook
+    await dispatch_hooks(
+        event=HookEvent.SESSION_START,
+        session_id=storage.session_id or "",
+    )
+
     client, client_format = create_client()
     tools = get_all_tools()
     enabled_tools = {t.name for t in tools}
@@ -169,16 +178,42 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
         model=model,
         enabled_tools=enabled_tools,
     )
-    messages = [create_user_message(prompt)]
+
+    # UserPromptSubmit Hook
+    hook_results = await dispatch_hooks(
+        event=HookEvent.USER_PROMPT_SUBMIT,
+        session_id=storage.session_id or "",
+        prompt=prompt,
+    )
+    # 检查是否被 hook 阻断
+    for hr in hook_results:
+        if hr.exit_code == 2:
+            console.print(f"[yellow]Hook blocked prompt: {hr.stderr or 'blocked'}[/]")
+            return
+    # 注入 hook 反馈
+    hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
+    effective_prompt = prompt
+    if hook_feedback:
+        effective_prompt += "\n\n<user-prompt-submit-hook>\n" + "\n".join(hook_feedback) + "\n</user-prompt-submit-hook>"
+
+    messages = [create_user_message(effective_prompt)]
 
     storage.record_user_message(prompt)
 
     response = await _stream_response_with_tools(
         client, client_format, model, system_prompt, messages, tools, storage,
         permission_context=permission_context,
+        session_id=storage.session_id or "",
     )
 
     storage.record_assistant_message(response)
+
+    # Stop Hook
+    await dispatch_hooks(
+        event=HookEvent.STOP,
+        session_id=storage.session_id or "",
+    )
+
     console.print()
     console.rule()
 
@@ -229,6 +264,12 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         history_messages = []
         storage.start_session()
 
+    # SessionStart Hook
+    await dispatch_hooks(
+        event=HookEvent.SESSION_START,
+        session_id=storage.session_id or "",
+    )
+
     client, client_format = create_client()
     tools = get_all_tools()
     enabled_tools = {t.name for t in tools}
@@ -268,16 +309,45 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                 console.print("[dim]再见！[/]")
                 break
 
-            messages.append(create_user_message(user_input))
+            # UserPromptSubmit Hook
+            hook_results = await dispatch_hooks(
+                event=HookEvent.USER_PROMPT_SUBMIT,
+                session_id=storage.session_id or "",
+                prompt=user_input,
+            )
+            # 检查是否被 hook 阻断
+            blocked = False
+            for hr in hook_results:
+                if hr.exit_code == 2:
+                    console.print(f"[yellow]Hook blocked prompt: {hr.stderr or 'blocked'}[/]")
+                    blocked = True
+                    break
+            if blocked:
+                continue
+            # 注入 hook 反馈
+            hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
+            effective_input = user_input
+            if hook_feedback:
+                effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(hook_feedback) + "\n</user-prompt-submit-hook>"
+
+            messages.append(create_user_message(effective_input))
             storage.record_user_message(user_input)
 
             full_response = await _stream_response_with_tools(
                 client, client_format, model, system_prompt, messages, tools, storage,
                 permission_context=permission_context,
+                session_id=storage.session_id or "",
             )
 
             messages.append(create_assistant_message(full_response))
             storage.record_assistant_message(full_response)
+
+            # Stop Hook
+            await dispatch_hooks(
+                event=HookEvent.STOP,
+                session_id=storage.session_id or "",
+            )
+
             console.print()
             console.rule()
 

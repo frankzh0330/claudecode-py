@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 
 from cc_python.config import (
@@ -31,6 +32,7 @@ from cc_python.config import (
     get_effective_api_key,
     get_effective_base_url,
 )
+from cc_python.hooks import HookEvent, dispatch_hooks
 from cc_python.permissions import (
     PermissionBehavior,
     PermissionContext,
@@ -231,6 +233,7 @@ async def _execute_tools_concurrent(
     on_tool_call: Any = None,
     permission_context: PermissionContext | None = None,
     on_permission_ask: Any = None,
+    session_id: str = "",
 ) -> list[dict[str, Any]]:
     """并发执行工具调用。
 
@@ -268,12 +271,18 @@ async def _execute_tools_concurrent(
             })
             continue
 
-        # --- 权限检查 ---
-        if permission_context:
-            perm_result = check_permission(tb["name"], tb["input"], permission_context)
-
-            if perm_result.behavior == PermissionBehavior.DENY:
-                result_text = f"权限拒绝: {perm_result.message}"
+        # --- PreToolUse Hook ---
+        hook_results = await dispatch_hooks(
+            event=HookEvent.PRE_TOOL_USE,
+            session_id=session_id,
+            cwd=str(Path.cwd()),
+            tool_name=tb["name"],
+            tool_input=tb["input"],
+            tool_use_id=tb["id"],
+        )
+        for hr in hook_results:
+            if hr.exit_code == 2 or hr.decision == "deny":
+                result_text = f"Hook blocked: {hr.stderr or hr.reason or 'blocked by PreToolUse hook'}"
                 if on_tool_call:
                     on_tool_call(tb["name"], tb["input"], result_text)
                 tool_results.append({
@@ -281,44 +290,62 @@ async def _execute_tools_concurrent(
                     "tool_use_id": tb["id"],
                     "content": result_text,
                 })
-                continue
+                break
+            if hr.updated_input:
+                tb["input"] = hr.updated_input
+        else:
+            # 没有 break（没有被 hook 阻断）→ 继续权限检查
+            # --- 权限检查 ---
+            if permission_context:
+                perm_result = check_permission(tb["name"], tb["input"], permission_context)
 
-            if perm_result.behavior == PermissionBehavior.ASK:
-                if on_permission_ask:
-                    user_result = await on_permission_ask(
-                        tb["name"], tb["input"], perm_result.message,
-                    )
-                    # 持久化用户选择的规则
-                    if user_result.rule_updates:
-                        from cc_python.permissions import PermissionRule, save_permission_rule
-                        for update in user_result.rule_updates:
-                            save_permission_rule(PermissionRule(
-                                tool_name=update["tool_name"],
-                                pattern=update.get("pattern", "*"),
-                                behavior=PermissionBehavior(update["behavior"]),
-                                source="user_settings",
-                            ))
-
-                    if user_result.behavior == PermissionBehavior.DENY:
-                        result_text = f"权限拒绝: {user_result.message or '用户拒绝'}"
-                        if on_tool_call:
-                            on_tool_call(tb["name"], tb["input"], result_text)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tb["id"],
-                            "content": result_text,
-                        })
-                        continue
-                else:
-                    # 没有回调时默认拒绝
-                    result_text = f"权限拒绝: 需要用户确认但无交互界面"
+                if perm_result.behavior == PermissionBehavior.DENY:
+                    result_text = f"权限拒绝: {perm_result.message}"
+                    if on_tool_call:
+                        on_tool_call(tb["name"], tb["input"], result_text)
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": tb["id"],
                         "content": result_text,
                     })
                     continue
-        # --- 权限检查结束 ---
+
+                if perm_result.behavior == PermissionBehavior.ASK:
+                    if on_permission_ask:
+                        user_result = await on_permission_ask(
+                            tb["name"], tb["input"], perm_result.message,
+                        )
+                        # 持久化用户选择的规则
+                        if user_result.rule_updates:
+                            from cc_python.permissions import PermissionRule, save_permission_rule
+                            for update in user_result.rule_updates:
+                                save_permission_rule(PermissionRule(
+                                    tool_name=update["tool_name"],
+                                    pattern=update.get("pattern", "*"),
+                                    behavior=PermissionBehavior(update["behavior"]),
+                                    source="user_settings",
+                                ))
+
+                        if user_result.behavior == PermissionBehavior.DENY:
+                            result_text = f"权限拒绝: {user_result.message or '用户拒绝'}"
+                            if on_tool_call:
+                                on_tool_call(tb["name"], tb["input"], result_text)
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": tb["id"],
+                                "content": result_text,
+                            })
+                            continue
+                    else:
+                        # 没有回调时默认拒绝
+                        result_text = f"权限拒绝: 需要用户确认但无交互界面"
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tb["id"],
+                            "content": result_text,
+                        })
+                        continue
+            # --- 权限检查结束 ---
 
         if tool.is_concurrency_safe:
             safe_tasks.append((tb, tool))
@@ -335,6 +362,19 @@ async def _execute_tools_concurrent(
                     result_text = await tool.call(**tb["input"])
                 except Exception as e:
                     result_text = f"工具执行错误: {e}"
+            # PostToolUse Hook
+            hook_results = await dispatch_hooks(
+                event=HookEvent.POST_TOOL_USE,
+                session_id=session_id,
+                cwd=str(Path.cwd()),
+                tool_name=tb["name"],
+                tool_input=tb["input"],
+                tool_use_id=tb["id"],
+                tool_response=result_text,
+            )
+            for hr in hook_results:
+                if hr.exit_code == 2 and hr.stderr:
+                    result_text += f"\n\n[Hook warning: {hr.stderr}]"
             if on_tool_call:
                 on_tool_call(tb["name"], tb["input"], result_text)
             return {
@@ -355,6 +395,19 @@ async def _execute_tools_concurrent(
             result_text = await tool.call(**tb["input"])
         except Exception as e:
             result_text = f"工具执行错误: {e}"
+        # PostToolUse Hook
+        hook_results = await dispatch_hooks(
+            event=HookEvent.POST_TOOL_USE,
+            session_id=session_id,
+            cwd=str(Path.cwd()),
+            tool_name=tb["name"],
+            tool_input=tb["input"],
+            tool_use_id=tb["id"],
+            tool_response=result_text,
+        )
+        for hr in hook_results:
+            if hr.exit_code == 2 and hr.stderr:
+                result_text += f"\n\n[Hook warning: {hr.stderr}]"
         if on_tool_call:
             on_tool_call(tb["name"], tb["input"], result_text)
         tool_results.append({
@@ -378,6 +431,7 @@ async def query_with_tools(
     on_tool_call: Any = None,
     permission_context: PermissionContext | None = None,
     on_permission_ask: Any = None,
+    session_id: str = "",
 ) -> str:
     """带工具调用的完整查询循环。
 
@@ -455,6 +509,7 @@ async def query_with_tools(
         tool_results = await _execute_tools_concurrent(
             tool_use_blocks, tools, on_tool_call,
             permission_context, on_permission_ask,
+            session_id=session_id,
         )
 
         # 3. 将 tool_result 作为 user message 追加
