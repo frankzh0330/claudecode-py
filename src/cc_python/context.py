@@ -8,11 +8,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import subprocess
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def get_system_context() -> dict[str, str]:
@@ -414,6 +417,8 @@ def build_system_prompt(
     12. MCP instructions (动态)
     13. Summarize tool results (动态)
     """
+    logger.debug("build_system_prompt: model=%s, tools=%s, language=%s, mcp=%s",
+                 model, enabled_tools, language, "yes" if mcp_manager else "no")
     parts: list[str] = []
 
     # --- 静态 section ---
@@ -457,12 +462,14 @@ def build_system_prompt(
     from cc_python.claudemd import load_claude_md
     claude_md = load_claude_md()
     if claude_md:
+        logger.debug("CLAUDE.md injected: %d chars", len(claude_md))
         parts.append("")
         parts.append(claude_md)
 
     # 9. Memory
     memory = load_memory_prompt()
     if memory:
+        logger.debug("memory prompt injected: %d chars", len(memory))
         parts.append("")
         parts.append(memory)
 

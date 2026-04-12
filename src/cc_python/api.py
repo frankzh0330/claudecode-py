@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from cc_python.compact import auto_compact_if_needed
 from cc_python.tool_result_storage import process_tool_result
@@ -55,7 +58,9 @@ def _is_anthropic_format(base_url: str | None) -> bool:
     """判断是否使用 Anthropic API 格式。"""
     if not base_url:
         return True
-    return "/anthropic" in base_url
+    result = "/anthropic" in base_url
+    logger.debug("API format detection: base_url=%s → %s", base_url, "anthropic" if result else "openai")
+    return result
 
 
 def create_client() -> tuple[Any, str]:
@@ -255,6 +260,7 @@ async def _execute_tools_concurrent(
     from cc_python.tools import find_tool_by_name
 
     tool_results: list[dict[str, Any]] = []
+    logger.debug("_execute_tools_concurrent: %d tool calls to process", len(tool_use_blocks))
 
     # 分组：并发安全的 vs 不安全的
     safe_tasks: list[tuple[dict[str, Any], Tool]] = []
@@ -264,6 +270,7 @@ async def _execute_tools_concurrent(
         tool = find_tool_by_name(tools, tb["name"])
         if tool is None:
             # 未知工具直接生成错误结果
+            logger.debug("unknown tool: %s", tb["name"])
             result_text = f"错误：未知工具 '{tb['name']}'"
             if on_tool_call:
                 on_tool_call(tb["name"], tb["input"], result_text)
@@ -285,6 +292,7 @@ async def _execute_tools_concurrent(
         )
         for hr in hook_results:
             if hr.exit_code == 2 or hr.decision == "deny":
+                logger.debug("PreToolUse hook blocked: %s → %s", tb["name"], hr.stderr or hr.reason)
                 result_text = f"Hook blocked: {hr.stderr or hr.reason or 'blocked by PreToolUse hook'}"
                 if on_tool_call:
                     on_tool_call(tb["name"], tb["input"], result_text)
@@ -301,6 +309,7 @@ async def _execute_tools_concurrent(
             # --- 权限检查 ---
             if permission_context:
                 perm_result = check_permission(tb["name"], tb["input"], permission_context)
+                logger.debug("permission check: %s → %s (%s)", tb["name"], perm_result.behavior.value, perm_result.message)
 
                 if perm_result.behavior == PermissionBehavior.DENY:
                     result_text = f"权限拒绝: {perm_result.message}"
@@ -354,6 +363,9 @@ async def _execute_tools_concurrent(
             safe_tasks.append((tb, tool))
         else:
             unsafe_tasks.append((tb, tool))
+
+    logger.debug("tool grouping: %d safe (parallel), %d unsafe (serial)",
+                 len(safe_tasks), len(unsafe_tasks))
 
     # 1. 并发安全的一起跑（对应 TS runToolsConcurrently）
     if safe_tasks:
@@ -459,6 +471,8 @@ async def query_with_tools(
     from cc_python.tools import tool_to_api_schema
 
     tools_schema = [tool_to_api_schema(t) for t in tools]
+    logger.debug("query_with_tools: model=%s, format=%s, tools=%d, messages=%d",
+                 model, client_format, len(tools), len(messages))
 
     current_messages = list(messages)
 
@@ -473,7 +487,8 @@ async def query_with_tools(
 
     # 对应 TS query.ts:654 while (attemptWithFallback) 循环
     max_iterations = 20  # 防止无限循环
-    for _ in range(max_iterations):
+    for iteration in range(max_iterations):
+        logger.debug("--- API loop iteration %d ---", iteration)
         text_chunks: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
 
@@ -500,7 +515,12 @@ async def query_with_tools(
         # 没有工具调用 → 直接返回文本
         if not tool_use_blocks:
             final_text = assistant_text
+            logger.debug("no tool_use blocks, returning text (%d chars)", len(final_text))
             break
+
+        logger.debug("received %d tool_use blocks: %s",
+                     len(tool_use_blocks),
+                     ", ".join(tb["name"] for tb in tool_use_blocks))
 
         # --- 有工具调用，并发执行 ---
 
@@ -532,5 +552,6 @@ async def query_with_tools(
         current_messages.append({"role": "user", "content": tool_results})
 
         final_text = assistant_text  # 保留最后一轮的文本
+        logger.debug("tool results appended, messages in context: %d", len(current_messages))
 
     return final_text

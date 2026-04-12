@@ -14,12 +14,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _get_config_home() -> Path:
@@ -134,6 +137,7 @@ class SessionStorage:
         self._session_id = session_id or str(uuid.uuid4())
         self._file_path = self._project_dir / f"{self._session_id}.jsonl"
         self._last_uuid = None
+        logger.debug("session started: %s (file=%s)", self._session_id[:8], self._file_path)
         return self._session_id
 
     def _ensure_dir(self) -> None:
@@ -310,6 +314,7 @@ def load_session(session_id: str, cwd: str | None = None) -> list[dict[str, Any]
     project_dir = get_project_dir(cwd)
     file_path = project_dir / f"{session_id}.jsonl"
     entries = _parse_jsonl(file_path)
+    logger.debug("load_session: %s → %d entries from %s", session_id[:8], len(entries), file_path)
 
     # 从 entries 中提取 transcript，按写入顺序（即时间顺序）
     messages = []

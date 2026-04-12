@@ -337,6 +337,9 @@ async def dispatch_hooks(
     if not matching:
         return []
 
+    logger.debug("dispatch_hooks: event=%s, tool=%s, %d matching hooks",
+                 event.value, tool_name, len(matching))
+
     input_json = _build_hook_input(
         event=event,
         session_id=session_id,
@@ -379,6 +382,7 @@ async def dispatch_hooks(
 
         # 阻塞结果：短路返回
         if result.exit_code == 2 or result.decision == "deny":
+            logger.debug("hook short-circuit: exit_code=%d, decision=%s", result.exit_code, result.decision)
             break
 
     return results

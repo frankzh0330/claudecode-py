@@ -18,10 +18,13 @@ TS 版 ~8000 行（24 文件），Python 简化版保留核心流程：
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class PermissionMode(Enum):
@@ -204,13 +207,18 @@ def check_permission(
     7. Bash 危险命令 → ASK（带警告）
     8. 默认: 有副作用工具 → ASK, 其他 → ALLOW
     """
+    logger.debug("check_permission: tool=%s, mode=%s, input_keys=%s",
+                 tool_name, context.mode.value, list(tool_input.keys()))
+
     # 1. 安全工具白名单（只读工具）
     if tool_name in SAFE_TOOLS:
+        logger.debug("→ ALLOW (safe tool whitelist)")
         return PermissionResult(behavior=PermissionBehavior.ALLOW)
 
     # 2. deny 规则（最高优先级）
     deny_rule = _find_matching_rule(context.deny_rules, tool_name, tool_input)
     if deny_rule:
+        logger.debug("→ DENY (deny rule: %s(%s))", deny_rule.tool_name, deny_rule.pattern)
         return PermissionResult(
             behavior=PermissionBehavior.DENY,
             message=f"被规则拒绝: {deny_rule.tool_name}({deny_rule.pattern})",
@@ -218,16 +226,19 @@ def check_permission(
 
     # 3. BYPASS 模式 — 跳过所有检查
     if context.mode == PermissionMode.BYPASS:
+        logger.debug("→ ALLOW (bypass mode)")
         return PermissionResult(behavior=PermissionBehavior.ALLOW)
 
     # 4. allow 规则
     allow_rule = _find_matching_rule(context.allow_rules, tool_name, tool_input)
     if allow_rule:
+        logger.debug("→ ALLOW (allow rule: %s(%s))", allow_rule.tool_name, allow_rule.pattern)
         return PermissionResult(behavior=PermissionBehavior.ALLOW)
 
     # 5. ask 规则 — 强制询问
     ask_rule = _find_matching_rule(context.ask_rules, tool_name, tool_input)
     if ask_rule:
+        logger.debug("→ ASK (ask rule: %s(%s))", ask_rule.tool_name, ask_rule.pattern)
         return PermissionResult(
             behavior=PermissionBehavior.ASK,
             message=f"需要确认: {tool_name}",
@@ -238,6 +249,7 @@ def check_permission(
         if tool_name in ("write_file", "edit_file"):
             file_path = tool_input.get("file_path", "")
             if file_path.startswith(context.working_directory):
+                logger.debug("→ ALLOW (accept_edits: in workdir)")
                 return PermissionResult(behavior=PermissionBehavior.ALLOW)
 
     # 7. Bash 危险命令检测
@@ -245,6 +257,7 @@ def check_permission(
         command = tool_input.get("command", "")
         danger_msg = classify_bash_command(command)
         if danger_msg:
+            logger.debug("→ ASK (dangerous bash: %s)", danger_msg)
             return PermissionResult(
                 behavior=PermissionBehavior.ASK,
                 message=danger_msg,
@@ -254,16 +267,19 @@ def check_permission(
     if tool_name in UNSAFE_TOOLS:
         # DONT_ASK 模式下，需要询问的自动拒绝
         if context.mode == PermissionMode.DONT_ASK:
+            logger.debug("→ DENY (dont_ask mode for unsafe tool)")
             return PermissionResult(
                 behavior=PermissionBehavior.DENY,
                 message=f"权限被自动拒绝（DONT_ASK 模式）: {tool_name}",
             )
+        logger.debug("→ ASK (default: unsafe tool)")
         return PermissionResult(
             behavior=PermissionBehavior.ASK,
             message=f"工具 {tool_name} 需要用户确认",
         )
 
     # 未知工具默认允许（保持向后兼容）
+    logger.debug("→ ALLOW (unknown tool, default allow)")
     return PermissionResult(behavior=PermissionBehavior.ALLOW)
 
 
@@ -365,8 +381,8 @@ def build_permission_context(working_directory: str = "") -> PermissionContext:
     settings = _read_settings()
     perm_config = settings.get("permissions", {})
 
-    # 解析权限模式
-    mode_str = perm_config.get("mode", "default")
+    # 解析权限模式（兼容 "mode" 和 TS 版的 "defaultMode"）
+    mode_str = perm_config.get("mode") or perm_config.get("defaultMode", "default")
     try:
         mode = PermissionMode(mode_str)
     except ValueError:
@@ -377,6 +393,9 @@ def build_permission_context(working_directory: str = "") -> PermissionContext:
     allow_rules = [r for r in rules if r.behavior == PermissionBehavior.ALLOW]
     deny_rules = [r for r in rules if r.behavior == PermissionBehavior.DENY]
     ask_rules = [r for r in rules if r.behavior == PermissionBehavior.ASK]
+
+    logger.debug("permission context: mode=%s, allow=%d, deny=%d, ask=%d, cwd=%s",
+                 mode.value, len(allow_rules), len(deny_rules), len(ask_rules), working_directory)
 
     return PermissionContext(
         mode=mode,

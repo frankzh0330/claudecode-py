@@ -52,6 +52,7 @@ class MCPManager:
             logger.debug("No MCP servers configured")
             return
 
+        logger.debug("connecting to %d MCP servers: %s", len(configs), ", ".join(configs.keys()))
         connect_tasks = []
         for name, config in configs.items():
             client = self._create_client(name, config)

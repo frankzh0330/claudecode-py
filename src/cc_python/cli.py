@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
+from pathlib import Path
 from typing import Any
 
 import click
@@ -36,6 +39,7 @@ from cc_python.tools import get_all_tools
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 async def _permission_prompt(
@@ -113,6 +117,8 @@ async def _stream_response_with_tools(
     - on_text: 文本流实时渲染 Markdown
     - on_tool_call: 显示工具调用过程和结果
     """
+    logger.debug("_stream_response_with_tools: model=%s, messages=%d, tools=%d",
+                 model, len(messages), len(tools))
     full_response = ""
 
     def on_text(chunk: str) -> None:
@@ -164,8 +170,11 @@ async def _stream_response_with_tools(
 
 async def _async_single_prompt(prompt: str, model: str) -> None:
     """单次 prompt 模式。"""
+    logger.debug("=== single_prompt mode: model=%s, prompt=%r", model, prompt[:100])
+
     storage = SessionStorage()
     storage.start_session()
+    logger.debug("session started: %s", storage.session_id)
 
     # SessionStart Hook
     await dispatch_hooks(
@@ -181,15 +190,19 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     discover_and_load_skills()
 
     client, client_format = create_client()
+    logger.debug("client created: format=%s", client_format)
     tools = get_all_tools(mcp_manager=mcp_manager)
     enabled_tools = {t.name for t in tools}
+    logger.debug("tools: %d enabled (%s)", len(tools), ", ".join(sorted(enabled_tools)[:10]))
     permission_context = build_permission_context()
+    logger.debug("permission mode: %s", permission_context.mode.value)
 
     system_prompt = build_system_prompt(
         model=model,
         enabled_tools=enabled_tools,
         mcp_manager=mcp_manager,
     )
+    logger.debug("system prompt built: %d chars", len(system_prompt))
 
     # UserPromptSubmit Hook
     hook_results = await dispatch_hooks(
@@ -211,6 +224,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     messages = [create_user_message(effective_prompt)]
 
     storage.record_user_message(prompt)
+    logger.debug("sending single prompt to API (%d chars)", len(effective_prompt))
 
     response = await _stream_response_with_tools(
         client, client_format, model, system_prompt, messages, tools, storage,
@@ -219,6 +233,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     )
 
     storage.record_assistant_message(response)
+    logger.debug("single prompt response: %d chars", len(response))
 
     # Stop Hook
     await dispatch_hooks(
@@ -265,16 +280,19 @@ def _pick_session(sessions: list[dict]) -> str | None:
 
 async def _async_interactive(model: str, resume_session_id: str | None = None) -> None:
     """交互循环模式。"""
+    logger.debug("=== interactive mode: model=%s, resume=%s", model, resume_session_id)
     storage = SessionStorage()
 
     if resume_session_id:
         # 恢复模式 — 加载历史消息
         history_messages = load_session(resume_session_id)
         storage.start_session(resume_session_id)
+        logger.debug("resumed session %s: %d history messages", resume_session_id[:8], len(history_messages))
         console.print(f"[dim]已恢复会话: {resume_session_id[:8]}... ({len(history_messages)} 条历史消息)[/]")
     else:
         history_messages = []
         storage.start_session()
+        logger.debug("new session: %s", storage.session_id)
 
     # SessionStart Hook
     await dispatch_hooks(
@@ -290,15 +308,19 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     discover_and_load_skills()
 
     client, client_format = create_client()
+    logger.debug("client created: format=%s", client_format)
     tools = get_all_tools(mcp_manager=mcp_manager)
     enabled_tools = {t.name for t in tools}
+    logger.debug("tools: %d enabled (%s)", len(tools), ", ".join(sorted(enabled_tools)[:10]))
     permission_context = build_permission_context()
+    logger.debug("permission mode: %s, working_dir=%s", permission_context.mode.value, permission_context.working_directory)
 
     system_prompt = build_system_prompt(
         model=model,
         enabled_tools=enabled_tools,
         mcp_manager=mcp_manager,
     )
+    logger.debug("system prompt built: %d chars", len(system_prompt))
     messages = list(history_messages)
 
     # 构建 MCP 状态信息
@@ -336,6 +358,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             parsed = parse_slash_command(user_input)
             if parsed:
                 cmd_name, cmd_args = parsed
+                logger.debug("slash command: /%s %s", cmd_name, cmd_args[:50])
                 cmd_context = {
                     "messages": messages,
                     "system_prompt": system_prompt,
@@ -345,6 +368,8 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     "mcp_manager": mcp_manager,
                 }
                 result = await dispatch_command(cmd_name, cmd_args, cmd_context)
+                logger.debug("command result: exit_repl=%s, should_query=%s, output=%d chars",
+                             result.exit_repl, result.should_query, len(result.output))
 
                 if result.exit_repl:
                     console.print("[dim]再见！[/]")
@@ -371,6 +396,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                 continue
 
             # ── 正常对话处理 ──
+            logger.debug("user input: %s", user_input[:100])
 
             # UserPromptSubmit Hook
             hook_results = await dispatch_hooks(
@@ -395,6 +421,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
             # 处理文件附件（@file 引用）
             attachment_blocks = process_attachments(effective_input)
+            logger.debug("attachments: %d blocks", len(attachment_blocks))
             if attachment_blocks:
                 # 将附件和文本一起作为 content blocks
                 content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
@@ -402,6 +429,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             else:
                 messages.append(create_user_message(effective_input))
             storage.record_user_message(user_input)
+            logger.debug("sending to API: %d messages in context", len(messages))
 
             full_response = await _stream_response_with_tools(
                 client, client_format, model, system_prompt, messages, tools, storage,
@@ -409,8 +437,9 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                 session_id=storage.session_id or "",
             )
 
-            messages.append(create_assistant_message(full_response))
+            messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
             storage.record_assistant_message(full_response)
+            logger.debug("response received: %d chars, total messages: %d", len(full_response), len(messages))
 
             # Stop Hook
             await dispatch_hooks(
@@ -427,6 +456,53 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
     # 清理 MCP 连接
     await mcp_manager.shutdown()
+
+
+def _setup_logging() -> None:
+    """配置日志到文件，不影响终端交互。
+
+    对齐 TS 版设计：
+    - 日志写文件，不写 stderr（不干扰 Rich UI）
+    - 按 session 分文件：~/.claude/debug/<sessionId>.txt
+    - latest 软链接指向当前会话，方便 tail -f
+    - 环境变量 CC_PYTHON_LOG_LEVEL 控制级别
+    """
+    import os
+    import uuid
+
+    log_level_str = os.environ.get("CC_PYTHON_LOG_LEVEL", "DEBUG").upper()
+    log_level = getattr(logging, log_level_str, logging.DEBUG)
+
+    log_dir = Path.home() / ".claude" / "debug"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    session_id = str(uuid.uuid4())[:8]
+    log_file = log_dir / f"{session_id}.txt"
+
+    handler = logging.FileHandler(log_file, encoding="utf-8")
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(name)s %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    ))
+
+    root_logger = logging.getLogger("cc_python")
+    root_logger.addHandler(handler)
+    root_logger.setLevel(log_level)
+
+    # latest 软链接指向当前会话
+    latest_link = log_dir / "latest"
+    try:
+        if latest_link.is_symlink() or latest_link.exists():
+            latest_link.unlink()
+        latest_link.symlink_to(log_file)
+    except OSError:
+        pass
+
+    # 静默第三方库的日志
+    for noisy in ("httpx", "httpcore", "openai", "anthropic", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    root_logger.info("=== cc_python 启动 (session: %s) ===", session_id)
 
 
 @click.command()
@@ -453,10 +529,15 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 )
 def main(prompt: str | None, model: str | None, resume: bool, session_id: str | None) -> None:
     """Claude Code Python 版 — AI 编程助手。"""
+    _setup_logging()
+
     resolved_model = model or get_effective_model(DEFAULT_MODEL)
+    logger.debug("=== main() called: prompt=%s, model=%s, resume=%s, session_id=%s ===",
+                 "yes" if prompt else None, resolved_model, resume, session_id)
 
     # 确定 resume 的 session_id
     effective_session_id = session_id
+
     if resume and not effective_session_id:
         sessions = list_sessions()
         effective_session_id = _pick_session(sessions)

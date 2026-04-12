@@ -122,13 +122,17 @@ async def dispatch_command(
     """
     cmd = find_command(name)
     if not cmd:
+        logger.debug("unknown command: /%s", name)
         return CommandResult(
             output=f"Unknown command: /{name}\nType /help for available commands.",
         )
 
     try:
-        return await cmd.handler(args, context or {})
+        result = await cmd.handler(args, context or {})
+        logger.debug("command /%s completed: output=%d chars, exit_repl=%s", name, len(result.output), result.exit_repl)
+        return result
     except Exception as e:
+        logger.debug("command /%s error: %s", name, e)
         return CommandResult(output=f"Command error: {e}")
 
 

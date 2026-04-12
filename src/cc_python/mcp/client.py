@@ -93,6 +93,7 @@ class MCPClient:
         if params:
             message["params"] = params
 
+        logger.debug("MCP → %s.%s (id=%s)", self._name, method, request_id)
         await self._transport.send(message)
 
         # 等待响应（循环读取直到拿到匹配的 id）
@@ -109,6 +110,7 @@ class MCPClient:
                 continue
 
             if response["id"] == request_id:
+                logger.debug("MCP ← %s.%s response (id=%s)", self._name, method, request_id)
                 if "error" in response:
                     error = response["error"]
                     raise RuntimeError(
@@ -211,6 +213,7 @@ class MCPClient:
         对应 TS: services/mcp/client.ts callTool()
         返回工具结果的文本表示。
         """
+        logger.debug("MCP call_tool: %s.%s(%s)", self._name, name, list(arguments.keys()))
         if not self._is_connected:
             return f"Error: MCP server '{self._name}' is not connected"
 
