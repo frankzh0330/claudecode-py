@@ -249,6 +249,14 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     storage.record_assistant_message(response)
     logger.debug("single prompt response: %d chars", len(response))
 
+    # 生成会话标题
+    messages.append(create_assistant_message(response))
+    from cc_python.session import generate_session_title
+    title = await generate_session_title(messages, client, client_format, model)
+    if title:
+        storage.save_metadata("custom-title", title)
+        logger.debug("session title: %s", title)
+
     # Stop Hook
     await dispatch_hooks(
         event=HookEvent.STOP,
@@ -268,14 +276,17 @@ def _pick_session(sessions: list[dict]) -> str | None:
     table = Table(title="历史会话")
     table.add_column("#", style="dim", width=4)
     table.add_column("会话ID", style="cyan", width=12)
-    table.add_column("首条消息", width=40)
+    table.add_column("标题", width=30)
+    table.add_column("首条消息", width=30)
     table.add_column("消息数", justify="right", width=6)
 
     for i, s in enumerate(sessions[:20], 1):
+        title = s.get("title", "")[:30]
         table.add_row(
             str(i),
             s.get("session_id", "")[:8] + "...",
-            s.get("first_prompt", "")[:40],
+            title or s.get("first_prompt", "")[:30],
+            s.get("first_prompt", "")[:30] if title else "",
             str(s.get("message_count", 0)),
         )
     console.print(table)
@@ -346,6 +357,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
     from cc_python.token_tracker import CostTracker
     cost_tracker = CostTracker()
+    title_generated = False  # 首轮对话后生成标题
 
     console.print(
         Panel(
@@ -477,6 +489,15 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
             storage.record_assistant_message(full_response)
             logger.debug("response received: %d chars, total messages: %d", len(full_response), len(messages))
+
+            # 首轮对话后生成会话标题
+            if not title_generated and len(messages) >= 2:
+                from cc_python.session import generate_session_title
+                title = await generate_session_title(messages, client, client_format, model)
+                if title:
+                    storage.save_metadata("custom-title", title)
+                    logger.debug("session title generated: %s", title)
+                title_generated = True
 
             # Stop Hook
             await dispatch_hooks(

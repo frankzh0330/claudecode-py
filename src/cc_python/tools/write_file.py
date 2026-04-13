@@ -63,6 +63,10 @@ class WriteFileTool:
 
         path = Path(file_path).expanduser()
 
+        # 修改前保存快照（用于 /undo 回退）
+        from cc_python.undo import save_snapshot
+        save_snapshot(file_path)
+
         def _write() -> str:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")

@@ -19,17 +19,19 @@
 │                 Service Layer                         │
 │  permissions.py ── 权限检查（8 步瀑布）               │
 │  hooks.py      ── 事件钩子（5 种事件）                │
+│  undo.py       ── 文件快照与回退                      │
 ├──────────────────────────────────────────────────────┤
 │                 Context Layer                         │
 │  context.py  ── System Prompt（13 sections）          │
 │  config.py   ── 配置管理（settings.json）             │
 │  messages.py ── 消息格式化                            │
-│  session.py  ── 会话持久化（JSONL）                   │
+│  session.py  ── 会话持久化（JSONL）+ 标题生成         │
 ├──────────────────────────────────────────────────────┤
 │                 Tool Layer                            │
-│  tools/*.py  ── 6 个核心工具                          │
+│  tools/*.py  ── 6 个核心工具 + 4 个高级工具            │
 │  read_file · write_file · edit_file · bash ·          │
-│  glob_tool · grep_tool                               │
+│  glob_tool · grep_tool · web_fetch · web_search        │
+│  + Agent/Task/Plan/NotebookEdit/MCP 工具               │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -93,6 +95,15 @@ cli.py → api.py → permissions.py / hooks.py → tools/*.py
 - Hook 结果处理（阻断 / 放行 / 修改输入）
 
 对应 TS：`services/hooks/`
+
+### undo.py（Service Layer）
+
+文件修改快照与回退。负责：
+- 内存栈式快照（上限 50 个）
+- write_file/edit_file 修改前自动保存
+- `/undo` 命令弹出快照恢复文件
+
+对应 TS：`utils/diff.ts`（~5K 行，TS 版有完整 patch/diff 系统）
 
 ### context.py（Context Layer）
 
@@ -189,8 +200,9 @@ cli.py: Stop Hook
 | `hooks.py` | `services/hooks/` | ~2000 |
 | `context.py` | `utils/systemPrompt.ts` + `constants/prompts.ts` | ~1500 |
 | `config.py` | `utils/config.ts` + `utils/managedEnv.ts` | ~500 |
-| `session.py` | `utils/conversation.ts` | ~2000 |
+| `session.py` | `utils/conversation.ts` + `utils/sessionTitle.ts` | ~2500 |
 | `messages.py` | `utils/messages.ts` | ~5500 |
 | `tools/*.py` | `tools/*Tool/` | ~2500 |
 | `compact.py` | `services/compact/` | ~3000 |
 | `token_tracker.py` | `utils/tokens.ts` + `utils/cost-tracker.ts` | ~2000 |
+| `undo.py` | `utils/diff.ts` | ~5000 |

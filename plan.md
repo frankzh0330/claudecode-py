@@ -431,10 +431,10 @@ has_permission_to_use_tool(tool, input):
 | **WebSearch 工具** | `tools/WebSearchTool/` | ~13K | ✅ 已实现：DuckDuckGo 搜索，域名过滤 |
 | **Token 精确计数** | `utils/tokens.ts` | — | ✅ 已实现：从 API usage 提取真实 token 数 |
 | **费用追踪** | API response usage | — | ✅ 已实现：按模型定价计算，每轮显示费用 |
-| **Undo/回退** | `utils/diff.ts` | ~5K | 文件修改前保存快照，支持 `/undo` 回退 |
-| **对话标题** | `utils/sessionTitle.ts` | ~5K | AI 自动生成会话标题，用于 session 列表展示 |
-| **/commit 命令** | `commands/commit.ts` | — | 生成 commit message 并执行 git commit |
-| **/init 命令** | `commands/init.ts` | ~256 | 项目初始化向导，生成 CLAUDE.md |
+| **Undo/回退** | `utils/diff.ts` | ~5K | ✅ 已实现：内存快照栈，`/undo` 回退 |
+| **对话标题** | `utils/sessionTitle.ts` | ~5K | ✅ 已实现：AI 生成 3-7 词标题，JSONL 存储 |
+| **/commit 命令** | `commands/commit.ts` | — | ✅ 已实现：prompt-based，git diff → AI commit |
+| **/init 命令** | `commands/init.ts` | ~256 | ✅ 已实现：prompt-based，项目分析 → CLAUDE.md |
 
 ### 10.2 中优先级 — 工具扩展
 

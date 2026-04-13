@@ -80,6 +80,10 @@ class EditFileTool:
         if not path.exists():
             return f"错误：文件不存在: {file_path}"
 
+        # 修改前保存快照（用于 /undo 回退）
+        from cc_python.undo import save_snapshot
+        save_snapshot(file_path)
+
         def _edit() -> str:
             content = path.read_text(encoding="utf-8")
             count = content.count(old_string)

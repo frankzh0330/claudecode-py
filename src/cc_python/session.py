@@ -256,6 +256,7 @@ def _extract_metadata(entries: list[dict[str, Any]]) -> dict[str, Any]:
         "first_prompt": "",
         "timestamp": "",
         "message_count": 0,
+        "title": "",
     }
     for entry in entries:
         if entry.get("type") == "transcript":
@@ -268,6 +269,8 @@ def _extract_metadata(entries: list[dict[str, Any]]) -> dict[str, Any]:
                     meta["session_id"] = entry.get("sessionId", "")
             if not meta["timestamp"]:
                 meta["timestamp"] = entry.get("timestamp", "")
+        elif entry.get("type") == "custom-title":
+            meta["title"] = entry.get("value", "")
     # 最后更新 timestamp 为最后一条 entry 的时间
     if entries:
         meta["last_timestamp"] = entries[-1].get("timestamp", meta["timestamp"])
@@ -328,3 +331,91 @@ def load_session(session_id: str, cwd: str | None = None) -> list[dict[str, Any]
             messages.append({"role": role, "content": content})
 
     return messages
+
+
+# ---------------------------------------------------------------------------
+# Session Title 生成 — 对应 TS utils/sessionTitle.ts
+# ---------------------------------------------------------------------------
+
+_TITLE_PROMPT = """\
+Generate a very short (3-7 words) title for this conversation.
+Use sentence case. No punctuation. No quotes.
+
+Conversation:
+{conversation_text}
+
+Title:"""
+
+
+def _extract_conversation_text(messages: list[dict[str, Any]], max_chars: int = 1000) -> str:
+    """从消息列表中提取最近 max_chars 字符的对话文本。"""
+    parts = []
+    total = 0
+    for msg in reversed(messages):
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            # content blocks 格式，提取 text 部分
+            text_parts = [
+                block.get("text", "") for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            content = " ".join(text_parts)
+        if not isinstance(content, str):
+            continue
+        line = f"{role}: {content}"
+        parts.append(line)
+        total += len(line)
+        if total >= max_chars:
+            break
+    parts.reverse()
+    return "\n".join(parts)[:max_chars]
+
+
+async def generate_session_title(
+    messages: list[dict[str, Any]],
+    client: Any,
+    client_format: str,
+    model: str,
+) -> str:
+    """从对话内容生成简短标题。
+
+    对应 TS sessionTitle.ts：
+    - 提取最近 1000 字符对话文本
+    - 用 prompt 要求 3-7 词 sentence-case 标题
+    - 发送一次性 API 调用（无工具，max_tokens=50）
+    """
+    if not messages:
+        return ""
+
+    text = _extract_conversation_text(messages)
+    if not text.strip():
+        return ""
+
+    prompt = _TITLE_PROMPT.format(conversation_text=text)
+
+    try:
+        if client_format == "anthropic":
+            response = await client.messages.create(
+                model=model,
+                max_tokens=50,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            title = response.content[0].text.strip() if response.content else ""
+        else:
+            response = await client.chat.completions.create(
+                model=model,
+                max_tokens=50,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            title = response.choices[0].message.content.strip() if response.choices else ""
+
+        # 清理标题：去除引号、多余空格
+        title = title.strip('"\'').strip()
+        if len(title) > 80:
+            title = title[:80]
+        return title
+
+    except Exception as e:
+        logger.debug("generate_session_title failed: %s", e)
+        return ""

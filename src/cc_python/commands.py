@@ -365,6 +365,225 @@ async def _cmd_exit(args: str, ctx: dict) -> CommandResult:
     return CommandResult(exit_repl=True)
 
 
+# ── /undo ──────────────────────────────────────────────
+
+
+async def _cmd_undo(args: str, ctx: dict) -> CommandResult:
+    """回退最近一次文件修改。
+
+    对应 TS 的 undo 功能：弹出快照栈顶，恢复文件到修改前的状态。
+    """
+    from cc_python.undo import pop_snapshot, has_snapshots
+
+    if not has_snapshots():
+        return CommandResult(output="Nothing to undo. No file snapshots available.")
+
+    snapshot = pop_snapshot()
+    path = snapshot["path"]
+    content = snapshot["content"]
+
+    if content is None:
+        # 文件修改前不存在 → 删除它（恢复为"不存在"状态）
+        import asyncio
+        from pathlib import Path
+        p = Path(path)
+        if p.exists():
+            try:
+                await asyncio.to_thread(p.unlink)
+                return CommandResult(output=f"Undone: deleted {path} (file was created by the last operation)")
+            except OSError as e:
+                return CommandResult(output=f"Undo failed: cannot delete {path}: {e}")
+        return CommandResult(output=f"Undone: {path} (file doesn't exist, nothing to restore)")
+    else:
+        # 文件修改前存在 → 恢复内容
+        import asyncio
+        from pathlib import Path
+        p = Path(path)
+        try:
+            await asyncio.to_thread(p.write_text, content, "utf-8")
+            return CommandResult(output=f"Undone: restored {path} to previous state ({len(content)} chars)")
+        except OSError as e:
+            return CommandResult(output=f"Undo failed: cannot write {path}: {e}")
+
+
+# ── /commit ────────────────────────────────────────────
+
+_COMMIT_PROMPT = """\
+Analyze the following git changes and create a commit.
+
+## Current git status
+```
+{status}
+```
+
+## Staged changes
+```
+{staged_diff}
+```
+
+## Unstaged changes
+```
+{unstaged_diff}
+```
+
+## Recent commit messages
+```
+{recent_logs}
+```
+
+## Instructions
+Follow these steps carefully:
+
+1. Run `git status` and `git diff` to see both staged and unstaged changes that will be committed.
+2. Analyze all changes and draft a clear, concise commit message that:
+   - Uses the imperative mood (e.g., "Add feature" not "Added feature")
+   - Focuses on the "why" rather than the "what"
+   - Follows the existing commit message style shown above
+3. If there are no staged changes, stage the relevant files with `git add`.
+4. Create the commit using a HEREDOC format like this:
+```bash
+git commit -m "$(cat <<'EOF'
+   <commit message here>
+
+   Co-Authored-By: Claude <noreply@anthropic.com>
+   EOF
+   )
+```
+5. Run `git status` after the commit to verify success.
+
+IMPORTANT:
+- NEVER use --no-verify or --no-gpg-sign flags
+- NEVER run git push unless the user explicitly asks
+- Only commit files that are relevant to the changes
+- If the changes are trivial, use a simple one-line commit message"""
+
+
+async def _cmd_commit(args: str, ctx: dict) -> CommandResult:
+    """读取 git 变更信息，构造 prompt 让 AI 生成并执行 commit。
+
+    对应 TS: commands/commit.ts — prompt-based 命令。
+    """
+    import asyncio
+
+    async def _run_git(cmd: str) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            "git", *cmd.split(),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return stdout.decode("utf-8", errors="replace").strip()
+
+    # 并行读取 git 信息
+    status, staged_diff, unstaged_diff, recent_logs = await asyncio.gather(
+        _run_git("status --short"),
+        _run_git("diff --staged"),
+        _run_git("diff"),
+        _run_git("log --oneline -5"),
+    )
+
+    # 检查是否有任何变更
+    if not status and not staged_diff and not unstaged_diff:
+        return CommandResult(output="No changes to commit. Working tree is clean.")
+
+    prompt = _COMMIT_PROMPT.format(
+        status=status or "(empty)",
+        staged_diff=staged_diff or "(no staged changes)",
+        unstaged_diff=unstaged_diff or "(no unstaged changes)",
+        recent_logs=recent_logs or "(no recent commits)",
+    )
+
+    return CommandResult(output=prompt, should_query=True)
+
+
+# ── /init ──────────────────────────────────────────────
+
+_INIT_PROMPT = """\
+Analyze this project and create a CLAUDE.md file.
+
+## Project root: {project_root}
+
+## Directory structure
+```
+{dir_listing}
+```
+
+## Existing CLAUDE.md
+```
+{existing_claudemd}
+```
+
+## Project configuration files
+```
+{config_files}
+```
+
+## Instructions
+1. Analyze the project structure, dependencies, and configuration to understand:
+   - What the project does
+   - Tech stack and frameworks used
+   - How to build, test, and run it
+   - Key directories and their purposes
+2. Create a CLAUDE.md file at the project root that includes:
+   - Project name and brief description
+   - Tech stack
+   - How to run, build, and test
+   - Project structure overview
+   - Any notable conventions or patterns
+3. Use the Write tool to create/update the CLAUDE.md file.
+4. Keep the CLAUDE.md concise and practical — focus on information that helps an AI assistant work effectively in this codebase.
+5. Write in the same language as the existing documentation (or English if unclear)."""
+
+
+async def _cmd_init(args: str, ctx: dict) -> CommandResult:
+    """分析项目并生成 CLAUDE.md。
+
+    对应 TS: commands/init.ts — prompt-based 命令。
+    """
+    import asyncio
+    from pathlib import Path
+
+    project_root = str(Path.cwd())
+
+    # 读取目录结构
+    async def _run(cmd: str) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd.split(),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        return stdout.decode("utf-8", errors="replace").strip()
+
+    dir_listing = await _run("ls -la")
+
+    # 读取现有 CLAUDE.md
+    claudemd_path = Path("CLAUDE.md")
+    existing = ""
+    if claudemd_path.exists():
+        existing = claudemd_path.read_text(encoding="utf-8")
+
+    # 读取项目配置文件
+    config_parts = []
+    for config_name in ("pyproject.toml", "package.json", "Cargo.toml", "go.mod", "Makefile"):
+        config_path = Path(config_name)
+        if config_path.exists():
+            content = config_path.read_text(encoding="utf-8")
+            # 截断过长的配置
+            if len(content) > 2000:
+                content = content[:2000] + "\n... (truncated)"
+            config_parts.append(f"--- {config_name} ---\n{content}")
+
+    prompt = _INIT_PROMPT.format(
+        project_root=project_root,
+        dir_listing=dir_listing or "(empty)",
+        existing_claudemd=existing or "(does not exist)",
+        config_files="\n".join(config_parts) if config_parts else "(no config files found)",
+    )
+
+    return CommandResult(output=prompt, should_query=True)
+
+
 # ── 注册内置命令 ──────────────────────────────────────────
 
 def register_builtin_commands() -> None:
@@ -407,6 +626,21 @@ def register_builtin_commands() -> None:
         handler=_cmd_exit,
         aliases=["quit", "q"],
         is_hidden=True,  # 已通过 Ctrl+C 支持
+    ))
+    register_command(Command(
+        name="undo",
+        description="Undo the last file modification",
+        handler=_cmd_undo,
+    ))
+    register_command(Command(
+        name="commit",
+        description="Create a git commit with AI-generated message",
+        handler=_cmd_commit,
+    ))
+    register_command(Command(
+        name="init",
+        description="Generate CLAUDE.md for the current project",
+        handler=_cmd_init,
     ))
 
 
