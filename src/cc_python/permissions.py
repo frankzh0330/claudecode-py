@@ -130,7 +130,6 @@ AGENT_TOOLS = frozenset({
     "agent",
 })
 
-
 # ---------------------------------------------------------------------------
 # 路径安全验证
 # 对应 TS permissions/pathValidation.ts
@@ -441,9 +440,9 @@ def _match_rule(rule: PermissionRule, tool_name: str, tool_input: dict) -> bool:
 
 
 def _find_matching_rule(
-    rules: list[PermissionRule],
-    tool_name: str,
-    tool_input: dict,
+        rules: list[PermissionRule],
+        tool_name: str,
+        tool_input: dict,
 ) -> PermissionRule | None:
     """在规则列表中查找匹配的规则。"""
     for rule in rules:
@@ -522,9 +521,9 @@ def _normalize_tool_name(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def check_permission(
-    tool_name: str,
-    tool_input: dict,
-    context: PermissionContext,
+        tool_name: str,
+        tool_input: dict,
+        context: PermissionContext,
 ) -> PermissionResult:
     """权限检查主函数。
 
@@ -785,9 +784,9 @@ def save_permission_rule(rule: PermissionRule) -> None:
 
 
 def build_permission_context(
-    working_directory: str = "",
-    allowed_tools: list[str] | None = None,
-    disallowed_tools: list[str] | None = None,
+        working_directory: str = "",
+        allowed_tools: list[str] | None = None,
+        disallowed_tools: list[str] | None = None,
 ) -> PermissionContext:
     """构建权限上下文。
 

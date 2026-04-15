@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -40,10 +39,10 @@ CommandHandler = Callable[..., Awaitable["CommandResult"]]
 @dataclass
 class CommandResult:
     """命令执行结果。"""
-    output: str = ""           # 输出文本
+    output: str = ""  # 输出文本
     should_query: bool = False  # 是否将结果发送给模型
     new_messages: list | None = None  # 要注入的消息（可选）
-    exit_repl: bool = False    # 是否退出 REPL
+    exit_repl: bool = False  # 是否退出 REPL
 
 
 @dataclass
@@ -123,9 +122,9 @@ def _looks_like_command(name: str) -> bool:
 
 
 async def dispatch_command(
-    name: str,
-    args: str,
-    context: dict[str, Any] | None = None,
+        name: str,
+        args: str,
+        context: dict[str, Any] | None = None,
 ) -> CommandResult:
     """分派命令执行。
 
@@ -141,7 +140,8 @@ async def dispatch_command(
     if cmd:
         try:
             result = await cmd.handler(args, context or {})
-            logger.debug("command /%s completed: output=%d chars, exit_repl=%s", name, len(result.output), result.exit_repl)
+            logger.debug("command /%s completed: output=%d chars, exit_repl=%s", name, len(result.output),
+                         result.exit_repl)
             return result
         except Exception as e:
             logger.debug("command /%s error: %s", name, e)
