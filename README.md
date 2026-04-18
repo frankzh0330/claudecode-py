@@ -57,12 +57,6 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 pip install termpilot
 ```
 
-If you want Anthropic support, install the optional extra:
-
-```bash
-pip install "termpilot[anthropic]"
-```
-
 To upgrade later:
 
 ```bash
@@ -81,8 +75,8 @@ You'll see a provider selector:
 
 ```
 ? Select your LLM provider:
-  > Anthropic (Claude)
-    OpenAI
+  > OpenAI
+    Anthropic (Claude)
     Zhipu GLM
     DeepSeek
     Qwen / DashScope
@@ -118,7 +112,7 @@ Or manually edit `~/.termpilot/settings.json`:
 }
 ```
 
-Supported providers: Anthropic, OpenAI, Zhipu GLM, DeepSeek, Qwen/DashScope, Moonshot/Kimi, SiliconFlow, OpenRouter, Groq, Together, Fireworks, Ollama, vLLM, and any OpenAI-compatible endpoint.
+All providers use the OpenAI-compatible API format. Supported providers: OpenAI, Anthropic, Zhipu GLM, DeepSeek, Qwen/DashScope, Moonshot/Kimi, SiliconFlow, OpenRouter, Groq, Together, Fireworks, Ollama, vLLM, and any custom OpenAI-compatible endpoint.
 
 Environment variables override `settings.json`.
 

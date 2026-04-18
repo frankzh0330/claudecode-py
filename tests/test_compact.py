@@ -132,7 +132,7 @@ class TestAutoCompactIfNeeded:
         from termpilot.compact import auto_compact_if_needed
         messages = [{"role": "user", "content": "short"}]
         result = await auto_compact_if_needed(
-            messages, "", None, "anthropic", "model",
+            messages, "", None, "model",
             context_window=200_000,
         )
         assert result == messages
@@ -143,7 +143,7 @@ class TestAutoCompactIfNeeded:
         from termpilot.compact import auto_compact_if_needed
         messages = [{"role": "user", "content": "short"}]
         result = await auto_compact_if_needed(
-            messages, "", None, "anthropic", "model",
+            messages, "", None, "model",
             context_window=200_000, force=True,
         )
         # 短消息经过 micro_compact 后不变

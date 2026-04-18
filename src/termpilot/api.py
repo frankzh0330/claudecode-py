@@ -56,8 +56,12 @@ MAX_CONCURRENT_TOOLS = int(
 )
 
 
-def create_client() -> tuple[Any, str]:
-    """创建 API 客户端。对应 TS getAnthropicClient()。"""
+def create_client() -> Any:
+    """创建 OpenAI-compatible API 客户端。对应 TS getAnthropicClient()。
+
+    所有 provider 统一使用 OpenAI SDK，因为绝大多数 LLM 平台
+    都兼容 OpenAI API 格式（包括 Anthropic 的 Messages API 兼容端点）。
+    """
     apply_settings_env()
 
     provider = get_effective_provider()
@@ -73,20 +77,6 @@ def create_client() -> tuple[Any, str]:
 
     base_url = get_effective_base_url(provider)
 
-    if provider == "anthropic":
-        try:
-            import anthropic
-        except ImportError:
-            sys.exit(
-                "Anthropic SDK not installed. "
-                "Run: pip install \"termpilot[anthropic]\""
-            )
-        client = anthropic.AsyncAnthropic(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        return client, "anthropic"
-
     try:
         from openai import AsyncOpenAI
     except ImportError:
@@ -96,87 +86,7 @@ def create_client() -> tuple[Any, str]:
         api_key=api_key,
         base_url=base_url,
     )
-    return client, "openai"
-
-
-async def _call_anthropic_streaming(
-        client: Any,
-        model: str,
-        system_prompt: str,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-        max_tokens: int = 4096,
-) -> AsyncGenerator[dict[str, Any], None]:
-    """Anthropic 格式的流式 API 调用。
-
-    对应 TS query.ts 中 deps.callModel 的 Anthropic 路径。
-    yield 两种事件：
-    - {"type": "text", "content": "..."} — 文本片段
-    - {"type": "tool_use", "id": "...", "name": "...", "input": {...}} — 工具调用
-    """
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "system": system_prompt,
-        "messages": messages,
-    }
-    if tools:
-        kwargs["tools"] = tools
-
-    # 收集 tool_use blocks（流式传输中 input 是分块的，需要累积）
-    tool_use_blocks: dict[str, dict[str, Any]] = {}  # id -> {name, input_json_str}
-    index_to_tool_id: dict[int, str] = {}  # content block index → tool_use id
-
-    async with client.messages.stream(**kwargs) as stream:
-        async for event in stream:
-            if event.type == "content_block_start":
-                # tool_use 块开始 — 记录 id 和 index 的映射
-                if hasattr(event.content_block, "type") and event.content_block.type == "tool_use":
-                    tool_id = event.content_block.id
-                    tool_use_blocks[tool_id] = {
-                        "name": event.content_block.name,
-                        "input_json": "",
-                    }
-                    index_to_tool_id[event.index] = tool_id
-
-            elif event.type == "content_block_delta":
-                if hasattr(event.delta, "text") and event.delta.text:
-                    # 文本内容块 — 直接产出
-                    yield {"type": "text", "content": event.delta.text}
-                elif hasattr(event.delta, "partial_json") and event.delta.partial_json:
-                    # tool_use input 分块 — 累积到对应的 block
-                    tool_id = index_to_tool_id.get(event.index)
-                    if tool_id and tool_id in tool_use_blocks:
-                        tool_use_blocks[tool_id]["input_json"] += event.delta.partial_json
-
-        # 流结束后，产出所有收集到的 tool_use blocks
-        for block_id, block_info in tool_use_blocks.items():
-            try:
-                input_data = json.loads(block_info["input_json"]) if block_info["input_json"] else {}
-            except json.JSONDecodeError:
-                input_data = {}
-            yield {
-                "type": "tool_use",
-                "id": block_id,
-                "name": block_info["name"],
-                "input": input_data,
-            }
-
-        # 产出 usage 事件（精确 token 计数）
-        try:
-            final_msg = await stream.get_final_message()
-            if hasattr(final_msg, "usage") and final_msg.usage:
-                yield {
-                    "type": "usage",
-                    "usage": {
-                        "input_tokens": getattr(final_msg.usage, "input_tokens", 0) or 0,
-                        "output_tokens": getattr(final_msg.usage, "output_tokens", 0) or 0,
-                        "cache_creation_input_tokens": getattr(final_msg.usage, "cache_creation_input_tokens", 0) or 0,
-                        "cache_read_input_tokens": getattr(final_msg.usage, "cache_read_input_tokens", 0) or 0,
-                    },
-                }
-        except Exception:
-            logger.debug("could not extract usage from Anthropic stream")
+    return client
 
 
 async def _call_openai_streaming(
@@ -312,8 +222,8 @@ async def _execute_tools_concurrent(
             if on_tool_call:
                 on_tool_call(tb["name"], tb["input"], result_text)
             tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tb["id"],
+                "role": "tool",
+                "tool_call_id": tb["id"],
                 "content": result_text,
             })
             continue
@@ -334,8 +244,8 @@ async def _execute_tools_concurrent(
                 if on_tool_call:
                     on_tool_call(tb["name"], tb["input"], result_text)
                 tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tb["id"],
+                    "role": "tool",
+                    "tool_call_id": tb["id"],
                     "content": result_text,
                 })
                 break
@@ -354,8 +264,8 @@ async def _execute_tools_concurrent(
                     if on_tool_call:
                         on_tool_call(tb["name"], tb["input"], result_text)
                     tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": tb["id"],
+                        "role": "tool",
+                        "tool_call_id": tb["id"],
                         "content": result_text,
                     })
                     continue
@@ -381,8 +291,8 @@ async def _execute_tools_concurrent(
                             if on_tool_call:
                                 on_tool_call(tb["name"], tb["input"], result_text)
                             tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": tb["id"],
+                                "role": "tool",
+                                "tool_call_id": tb["id"],
                                 "content": result_text,
                             })
                             continue
@@ -390,8 +300,8 @@ async def _execute_tools_concurrent(
                         # 没有回调时默认拒绝
                         result_text = f"权限拒绝: 需要用户确认但无交互界面"
                         tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": tb["id"],
+                            "role": "tool",
+                            "tool_call_id": tb["id"],
                             "content": result_text,
                         })
                         continue
@@ -433,8 +343,8 @@ async def _execute_tools_concurrent(
             if on_tool_call:
                 on_tool_call(tb["name"], tb["input"], result_text)
             return {
-                "type": "tool_result",
-                "tool_use_id": tb["id"],
+                "role": "tool",
+                "tool_call_id": tb["id"],
                 "content": result_text,
             }
 
@@ -468,8 +378,8 @@ async def _execute_tools_concurrent(
         if on_tool_call:
             on_tool_call(tb["name"], tb["input"], result_text)
         tool_results.append({
-            "type": "tool_result",
-            "tool_use_id": tb["id"],
+            "role": "tool",
+            "tool_call_id": tb["id"],
             "content": result_text,
         })
 
@@ -478,7 +388,6 @@ async def _execute_tools_concurrent(
 
 async def query_with_tools(
         client: Any,
-        client_format: str,
         model: str,
         system_prompt: str,
         messages: list[dict[str, Any]],
@@ -496,22 +405,15 @@ async def query_with_tools(
     对应 TS query.ts 的主循环（约第 554-863 行）+
     toolOrchestration.ts 的并发执行。
 
-    核心流程：
-    1. 调用 API，收集文本和 tool_use blocks
-    2. 如果有 tool_use → 并发执行安全工具、串行执行不安全工具 → 追加消息 → 再次调用
-    3. 循环直到没有 tool_use，返回最终文本
-
-    Args:
-        on_text: 流式文本回调（用于实时渲染）
-        on_tool_call: 工具调用回调（用于显示工具执行过程）
-        permission_context: 权限上下文
-        on_permission_ask: 权限确认回调
+    统一使用 OpenAI-compatible 消息格式：
+    - Assistant message: {"role": "assistant", "content": text, "tool_calls": [...]}
+    - Tool result: {"role": "tool", "tool_call_id": ..., "content": ...}
     """
     from termpilot.tools import tool_to_api_schema
 
     tools_schema = [tool_to_api_schema(t) for t in tools]
-    logger.debug("query_with_tools: model=%s, format=%s, tools=%d, messages=%d",
-                 model, client_format, len(tools), len(messages))
+    logger.debug("query_with_tools: model=%s, tools=%d, messages=%d",
+                 model, len(tools), len(messages))
 
     current_messages = list(messages)
 
@@ -519,7 +421,7 @@ async def query_with_tools(
     context_window = get_context_window()
     current_messages = await auto_compact_if_needed(
         current_messages, system_prompt,
-        client, client_format, model,
+        client, model,
         context_window=context_window,
     )
     final_text = ""
@@ -532,15 +434,9 @@ async def query_with_tools(
         tool_use_blocks: list[dict[str, Any]] = []
         iteration_usage: dict[str, int] | None = None
 
-        # 选择对应的流式调用
-        if client_format == "anthropic":
-            stream = _call_anthropic_streaming(
-                client, model, system_prompt, current_messages, tools_schema, max_tokens,
-            )
-        else:
-            stream = _call_openai_streaming(
-                client, model, system_prompt, current_messages, tools_schema, max_tokens,
-            )
+        stream = _call_openai_streaming(
+            client, model, system_prompt, current_messages, tools_schema, max_tokens,
+        )
 
         async for event in stream:
             if event["type"] == "text":
@@ -563,8 +459,6 @@ async def query_with_tools(
                          usage.input_tokens, usage.output_tokens,
                          usage.cache_creation_input_tokens, usage.cache_read_input_tokens)
 
-        assistant_text = "".join(text_chunks)
-
         # 没有工具调用 → 直接返回文本
         if not tool_use_blocks:
             final_text = assistant_text
@@ -577,32 +471,33 @@ async def query_with_tools(
 
         # --- 有工具调用，并发执行 ---
 
-        # 1. 构造 assistant message（包含文本 + tool_use content blocks）
-        # 对应 TS query.ts:826-844
-        assistant_content: list[dict[str, Any]] = []
-        if assistant_text:
-            assistant_content.append({"type": "text", "text": assistant_text})
+        # 1. 构造 assistant message（OpenAI tool_calls 格式）
+        tool_calls = []
         for tb in tool_use_blocks:
-            assistant_content.append({
-                "type": "tool_use",
+            tool_calls.append({
                 "id": tb["id"],
-                "name": tb["name"],
-                "input": tb["input"],
+                "type": "function",
+                "function": {
+                    "name": tb["name"],
+                    "arguments": json.dumps(tb["input"], ensure_ascii=False),
+                },
             })
 
-        current_messages.append({"role": "assistant", "content": assistant_content})
+        current_messages.append({
+            "role": "assistant",
+            "content": assistant_text or None,
+            "tool_calls": tool_calls,
+        })
 
         # 2. 并发执行工具调用
-        # 对应 TS toolOrchestration.ts runTools()
         tool_results = await _execute_tools_concurrent(
             tool_use_blocks, tools, on_tool_call,
             permission_context, on_permission_ask,
             session_id=session_id,
         )
 
-        # 3. 将 tool_result 作为 user message 追加
-        # Anthropic API 要求 tool_result 放在 role=user 的 message 中
-        current_messages.append({"role": "user", "content": tool_results})
+        # 3. 将 tool results 作为独立的 role=tool 消息追加
+        current_messages.extend(tool_results)
 
         final_text = assistant_text  # 保留最后一轮的文本
         logger.debug("tool results appended, messages in context: %d", len(current_messages))

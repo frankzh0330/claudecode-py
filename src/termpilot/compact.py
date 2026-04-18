@@ -458,7 +458,6 @@ def _extract_summary(text: str) -> str:
 async def full_compact(
         messages: list[dict],
         client: Any,
-        client_format: str,
         model: str,
         context_window: int = CONTEXT_WINDOW_DEFAULT,
 ) -> list[dict]:
@@ -485,32 +484,15 @@ async def full_compact(
     if not old_text.strip():
         return messages
 
-    # 调用 LLM 生成摘要
-    compact_messages = [
-        {"role": "user", "content": f"{_COMPACT_PROMPT}\n\n---\n\n{old_text}"},
-    ]
-
+    # 调用 LLM 生成摘要（OpenAI-compatible 格式）
     try:
-        if client_format == "anthropic":
-            async with client.messages.stream(
-                    model=model,
-                    max_tokens=4096,
-                    messages=compact_messages,
-            ) as stream:
-                summary_text = ""
-                async for event in stream:
-                    if hasattr(event, "delta") and hasattr(event.delta, "text"):
-                        if event.delta.text:
-                            summary_text += event.delta.text
-        else:
-            # OpenAI 格式
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": f"{_COMPACT_PROMPT}\n\n---\n\n{old_text}"}],
-                max_tokens=4096,
-                stream=False,
-            )
-            summary_text = response.choices[0].message.content or ""
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": f"{_COMPACT_PROMPT}\n\n---\n\n{old_text}"}],
+            max_tokens=4096,
+            stream=False,
+        )
+        summary_text = response.choices[0].message.content or ""
 
         summary = _extract_summary(summary_text)
         logger.info(
@@ -546,7 +528,6 @@ async def auto_compact_if_needed(
         messages: list[dict],
         system_prompt: str,
         client: Any,
-        client_format: str,
         model: str,
         context_window: int = CONTEXT_WINDOW_DEFAULT,
         force: bool = False,
@@ -576,14 +557,14 @@ async def auto_compact_if_needed(
     # Step 1: micro-compact
     result = micro_compact(messages)
     tokens_after = estimate_tokens(result, system_prompt)
-    if tokens_after < threshold:
+    if not force and tokens_after < threshold:
         logger.info("Micro-compact reduced tokens: %d → %d", tokens, tokens_after)
         return result
 
     # Step 2: full-compact
-    logger.info("Micro-compact insufficient (%d tokens), running full-compact", tokens_after)
+    logger.info("Running full-compact (micro: %d → %d, force=%s)", tokens, tokens_after, force)
     result = await full_compact(
-        result, client, client_format, model, context_window,
+        result, client, model, context_window,
     )
     tokens_final = estimate_tokens(result, system_prompt)
     logger.info("Full-compact: %d → %d tokens", tokens, tokens_final)

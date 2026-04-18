@@ -525,7 +525,6 @@ def _extract_conversation_text(messages: list[dict[str, Any]], max_chars: int = 
 async def generate_session_title(
         messages: list[dict[str, Any]],
         client: Any,
-        client_format: str,
         model: str,
 ) -> str:
     """从对话内容生成简短标题。
@@ -545,20 +544,12 @@ async def generate_session_title(
     prompt = _TITLE_PROMPT.format(conversation_text=text)
 
     try:
-        if client_format == "anthropic":
-            response = await client.messages.create(
-                model=model,
-                max_tokens=50,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            title = response.content[0].text.strip() if response.content else ""
-        else:
-            response = await client.chat.completions.create(
-                model=model,
-                max_tokens=50,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            title = response.choices[0].message.content.strip() if response.choices else ""
+        response = await client.chat.completions.create(
+            model=model,
+            max_tokens=50,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        title = response.choices[0].message.content.strip() if response.choices else ""
 
         # 清理标题：去除引号、多余空格
         title = title.strip('"\'').strip()

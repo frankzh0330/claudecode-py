@@ -498,7 +498,7 @@ def get_effective_base_url(provider: str | None = None) -> str | None:
     )
 
 
-def get_effective_model(default: str = "claude-sonnet-4-20250514", provider: str | None = None) -> str:
+def get_effective_model(default: str = "gpt-4o", provider: str | None = None) -> str:
     """获取默认模型。
 
     会按 provider 读取最自然的模型变量，同时保留旧变量名兼容。

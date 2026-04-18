@@ -12,7 +12,7 @@ class TestGetSettings:
         assert get_settings()["env"]["ANTHROPIC_API_KEY"] == "sk-test"
 
     def test_missing_file(self, tmp_path, monkeypatch):
-        monkeypatch.setattr("termpilot.config._get_settings_path", lambda: tmp_path / "nonexistent.json")
+        monkeypatch.setattr("termpilot.config.get_settings_path", lambda: tmp_path / "nonexistent.json")
         from termpilot.config import get_settings
         assert get_settings() == {}
 
@@ -58,36 +58,31 @@ class TestApplySettingsEnv:
 
 class TestGetEffectiveApiKey:
     def test_from_env(self, tmp_settings, env_clean, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
         from termpilot.config import get_effective_api_key
         assert get_effective_api_key() == "sk-env"
 
     def test_from_settings(self, tmp_settings, env_clean):
-        tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-settings"}})
+        tmp_settings({"env": {"OPENAI_API_KEY": "sk-settings"}})
         from termpilot.config import get_effective_api_key
         assert get_effective_api_key() == "sk-settings"
 
     def test_env_priority(self, tmp_settings, env_clean, monkeypatch):
-        tmp_settings({"env": {"ANTHROPIC_API_KEY": "sk-settings"}})
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
+        tmp_settings({"env": {"OPENAI_API_KEY": "sk-settings"}})
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
         from termpilot.config import get_effective_api_key
         assert get_effective_api_key() == "sk-env"
 
-    def test_auth_token_fallback(self, tmp_settings, env_clean, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "token-123")
+    def test_anthropic_provider(self, tmp_settings, env_clean, monkeypatch):
+        monkeypatch.setenv("TERMPILOT_PROVIDER", "anthropic")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-anthropic")
         from termpilot.config import get_effective_api_key
-        assert get_effective_api_key() == "token-123"
+        assert get_effective_api_key() == "sk-anthropic"
 
     def test_zhipu_fallback(self, tmp_settings, env_clean, monkeypatch):
         monkeypatch.setenv("ZHIPU_API_KEY", "zhipu.xxx")
         from termpilot.config import get_effective_api_key
         assert get_effective_api_key("openai_compatible") == "zhipu.xxx"
-
-    def test_openai_provider_reads_openai_key(self, tmp_settings, env_clean, monkeypatch):
-        monkeypatch.setenv("TERMPILOT_PROVIDER", "openai")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
-        from termpilot.config import get_effective_api_key
-        assert get_effective_api_key() == "sk-openai"
 
     def test_none_when_no_key(self, tmp_settings, env_clean):
         from termpilot.config import get_effective_api_key
@@ -97,7 +92,7 @@ class TestGetEffectiveApiKey:
 class TestGetEffectiveProvider:
     def test_default(self, tmp_settings, env_clean):
         from termpilot.config import get_effective_provider
-        assert get_effective_provider() == "anthropic"
+        assert get_effective_provider() == "openai"
 
     def test_alias_normalization(self, tmp_settings, env_clean, monkeypatch):
         monkeypatch.setenv("TERMPILOT_PROVIDER", "zhipu")
@@ -108,22 +103,23 @@ class TestGetEffectiveProvider:
 class TestGetEffectiveModel:
     def test_default(self, tmp_settings, env_clean):
         from termpilot.config import get_effective_model
-        assert get_effective_model() == "claude-sonnet-4-20250514"
-
-    def test_env_override(self, tmp_settings, env_clean, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_MODEL", "gpt-4o")
-        from termpilot.config import get_effective_model
         assert get_effective_model() == "gpt-4o"
 
+    def test_env_override(self, tmp_settings, env_clean, monkeypatch):
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-4o-mini")
+        from termpilot.config import get_effective_model
+        assert get_effective_model() == "gpt-4o-mini"
+
     def test_settings_fallback(self, tmp_settings, env_clean):
-        tmp_settings({"env": {"ANTHROPIC_MODEL": "glm-4-flash"}})
+        tmp_settings({"env": {"OPENAI_MODEL": "glm-4-flash"}})
         from termpilot.config import get_effective_model
         assert get_effective_model() == "glm-4-flash"
 
-    def test_openai_model_alias(self, tmp_settings, env_clean):
-        tmp_settings({"env": {"TERMPILOT_PROVIDER": "openai", "OPENAI_MODEL": "gpt-4o"}})
+    def test_anthropic_model(self, tmp_settings, env_clean, monkeypatch):
+        monkeypatch.setenv("TERMPILOT_PROVIDER", "anthropic")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
         from termpilot.config import get_effective_model
-        assert get_effective_model() == "gpt-4o"
+        assert get_effective_model() == "claude-sonnet-4-20250514"
 
 
 class TestGetEffectiveBaseUrl:

@@ -10,15 +10,14 @@ import pytest
 @pytest.fixture
 def tmp_settings(tmp_path, monkeypatch):
     """创建临时 settings.json 并 mock 路径。"""
-    settings_file = tmp_path / ".claude" / "settings.json"
+    settings_file = tmp_path / ".termpilot" / "settings.json"
     settings_file.parent.mkdir(parents=True)
 
     def _write(data: dict[str, Any]) -> Path:
         settings_file.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         return settings_file
 
-    monkeypatch.setattr("termpilot.config._get_settings_path", lambda: settings_file)
-    monkeypatch.setattr("termpilot.permissions._get_settings_path", lambda: settings_file)
+    monkeypatch.setattr("termpilot.config.get_settings_path", lambda: settings_file)
     _write({})
     return _write
 

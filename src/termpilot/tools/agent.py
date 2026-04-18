@@ -174,7 +174,7 @@ class AgentTool:
         messages = [{"role": "user", "content": prompt}]
 
         # 调用 API
-        client, client_format = create_client()
+        client = create_client()
         model = get_effective_model()
 
         logger.debug("agent _run_agent: type=%s, tools=%d, prompt=%d chars",
@@ -183,7 +183,6 @@ class AgentTool:
         try:
             result = await query_with_tools(
                 client=client,
-                client_format=client_format,
                 model=model,
                 system_prompt=system_prompt,
                 messages=messages,

@@ -182,7 +182,7 @@ async def dispatch_command(
 
 async def _cmd_help(args: str, ctx: dict) -> CommandResult:
     """显示帮助信息。"""
-    lines = ["Available commands:", ""]
+    lines = ["**Available commands:**", ""]
 
     commands = get_all_commands()
     for cmd in sorted(commands, key=lambda c: c.name):
@@ -190,16 +190,16 @@ async def _cmd_help(args: str, ctx: dict) -> CommandResult:
             continue
         aliases = f" ({', '.join(f'/{a}' for a in cmd.aliases)})" if cmd.aliases else ""
         hint = f" {cmd.argument_hint}" if cmd.argument_hint else ""
-        lines.append(f"  /{cmd.name}{hint}{aliases} — {cmd.description}")
+        lines.append(f"- `/{cmd.name}{hint}{aliases}` — {cmd.description}")
 
     # 列出 user-invocable skills（对应 TS: 命令和 skill 统一展示）
     from termpilot.skills import get_all_skills
     skills = [s for s in get_all_skills() if s.user_invocable]
     if skills:
         lines.append("")
-        lines.append("Available skills:")
+        lines.append("**Available skills:**")
         for skill in sorted(skills, key=lambda s: s.name):
-            lines.append(f"  /{skill.name} — {skill.description}")
+            lines.append(f"- `/{skill.name}` — {skill.description}")
 
     return CommandResult(output="\n".join(lines))
 
@@ -220,7 +220,6 @@ async def _cmd_compact(args: str, ctx: dict) -> CommandResult:
     tokens_before = estimate_tokens(messages, system_prompt)
 
     client = ctx.get("client")
-    client_format = ctx.get("client_format", "anthropic")
     model = ctx.get("model", "")
 
     if not client:
@@ -228,7 +227,7 @@ async def _cmd_compact(args: str, ctx: dict) -> CommandResult:
 
     compacted = await auto_compact_if_needed(
         messages, system_prompt,
-        client, client_format, model,
+        client, model,
         context_window=context_window,
         force=True,  # 强制压缩
     )

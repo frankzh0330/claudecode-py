@@ -36,7 +36,7 @@ from termpilot.session import SessionStorage, list_sessions, load_session
 from termpilot.skills import discover_and_load_skills
 from termpilot.tools import get_all_tools
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "gpt-4o"
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -101,7 +101,6 @@ async def _permission_prompt(
 
 async def _stream_response_with_tools(
         client: Any,
-        client_format: str,
         model: str,
         system_prompt: str,
         messages: list[dict],
@@ -149,7 +148,6 @@ async def _stream_response_with_tools(
 
     full_response = await query_with_tools(
         client=client,
-        client_format=client_format,
         model=model,
         system_prompt=system_prompt,
         messages=messages,
@@ -204,8 +202,8 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     # 加载 skills
     discover_and_load_skills()
 
-    client, client_format = create_client()
-    logger.debug("client created: format=%s", client_format)
+    client = create_client()
+    logger.debug("client created")
     tools = get_all_tools(mcp_manager=mcp_manager)
     enabled_tools = {t.name for t in tools}
     logger.debug("tools: %d enabled (%s)", len(tools), ", ".join(sorted(enabled_tools)[:10]))
@@ -247,7 +245,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
 
     try:
         response = await _stream_response_with_tools(
-            client, client_format, model, system_prompt, messages, tools, storage,
+            client, model, system_prompt, messages, tools, storage,
             permission_context=permission_context,
             session_id=storage.session_id or "",
             cost_tracker=cost_tracker,
@@ -262,7 +260,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     # 生成会话标题
     messages.append(create_assistant_message(response))
     from termpilot.session import generate_session_title
-    title = await generate_session_title(messages, client, client_format, model)
+    title = await generate_session_title(messages, client, model)
     if title:
         storage.save_metadata("custom-title", title)
         logger.debug("session title: %s", title)
@@ -362,8 +360,8 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     # 加载 skills
     discover_and_load_skills()
 
-    client, client_format = create_client()
-    logger.debug("client created: format=%s", client_format)
+    client = create_client()
+    logger.debug("client created")
     tools = get_all_tools(mcp_manager=mcp_manager)
     enabled_tools = {t.name for t in tools}
     logger.debug("tools: %d enabled (%s)", len(tools), ", ".join(sorted(enabled_tools)[:10]))
@@ -403,10 +401,29 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         )
     )
 
+    from termpilot.completer import SlashCompleter
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.styles import Style as PtStyle
+
+    slash_completer = SlashCompleter()
+    slash_completer.refresh()
+    pt_style = PtStyle.from_dict({"prompt": "bold green"})
+
+    history_file = get_config_home() / "prompt_history"
+    pt_session = PromptSession(
+        message=[("class:prompt", "> ")],
+        completer=slash_completer,
+        complete_while_typing=True,
+        style=pt_style,
+        history=FileHistory(str(history_file)),
+        enable_history_search=True,
+    )
+
     while True:
         try:
             console.print()
-            user_input = console.input("[bold green]> [/]")
+            user_input = await pt_session.prompt_async()
 
             # 清理终端输入中可能出现的 Unicode 代理字符
             user_input = user_input.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
@@ -423,7 +440,6 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     "messages": messages,
                     "system_prompt": system_prompt,
                     "client": client,
-                    "client_format": client_format,
                     "model": model,
                     "mcp_manager": mcp_manager,
                 }
@@ -456,7 +472,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
                     try:
                         full_response = await _stream_response_with_tools(
-                            client, client_format, model, system_prompt, messages, tools, storage,
+                            client, model, system_prompt, messages, tools, storage,
                             permission_context=permission_context,
                             session_id=storage.session_id or "",
                             cost_tracker=cost_tracker,
@@ -473,7 +489,6 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     await dispatch_hooks(
                         event=HookEvent.STOP,
                         session_id=storage.session_id or "",
-                        stop_hook_active=True,
                     )
 
                 console.print()
@@ -519,7 +534,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
 
             try:
                 full_response = await _stream_response_with_tools(
-                    client, client_format, model, system_prompt, messages, tools, storage,
+                    client, model, system_prompt, messages, tools, storage,
                     permission_context=permission_context,
                     session_id=storage.session_id or "",
                     cost_tracker=cost_tracker,
@@ -535,7 +550,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             # 首轮对话后生成会话标题
             if not title_generated and len(messages) >= 2:
                 from termpilot.session import generate_session_title
-                title = await generate_session_title(messages, client, client_format, model)
+                title = await generate_session_title(messages, client, model)
                 if title:
                     storage.save_metadata("custom-title", title)
                     logger.debug("session title generated: %s", title)
