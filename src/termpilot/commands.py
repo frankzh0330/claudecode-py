@@ -295,6 +295,16 @@ async def _cmd_config(args: str, ctx: dict) -> CommandResult:
     return CommandResult(output="\n".join(lines))
 
 
+async def _cmd_details(args: str, ctx: dict) -> CommandResult:
+    """Show the full output of a recent tool call."""
+    ui = ctx.get("ui")
+    if ui is None:
+        return CommandResult(output="Tool details are not available in this session.")
+
+    token = args.strip() or "last"
+    return CommandResult(output=ui.format_tool_details(token))
+
+
 async def _cmd_skills(args: str, ctx: dict) -> CommandResult:
     """列出可用 skills。"""
     from termpilot.skills import get_all_skills
@@ -607,6 +617,12 @@ def register_builtin_commands() -> None:
         name="config",
         description="Show current configuration",
         handler=_cmd_config,
+    ))
+    register_command(Command(
+        name="details",
+        description="Show full output for a recent tool result",
+        handler=_cmd_details,
+        argument_hint="[last|n]",
     ))
     register_command(Command(
         name="skills",

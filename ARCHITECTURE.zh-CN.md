@@ -10,8 +10,9 @@
 ┌──────────────────────────────────────────────────────┐
 │                    CLI Layer                         │
 │                    cli.py                            │
-│  REPL / 单次执行 · 渲染 · 权限确认 UI                │
-│  slash command 分发 · 会话启动                       │
+│  REPL / 单次执行 · 安静型渲染                        │
+│  权限菜单 · 工具卡片 · slash command 分发            │
+│  会话启动                                            │
 ├──────────────────────────────────────────────────────┤
 │                    API Layer                         │
 │                    api.py                            │
@@ -60,13 +61,16 @@ cli.py
 - 运行 REPL 和单次执行模式
 - 初始化 session、undo、MCP、skills
 - 分发 `SessionStart`、`UserPromptSubmit`、`Stop` hooks
-- 用 `rich` 渲染 Markdown 和工具结果
+- 用 `rich` 渲染 Markdown、阶段状态和紧凑工具卡片
+- 保存最近的工具结果供 `/details` 查看
+- 使用可键盘操作的权限确认菜单
 - 处理 `commands.py` 中的 slash commands
 
 ### `api.py`
 
 - 创建 Anthropic / OpenAI 兼容客户端
 - 流式消费文本和 tool-use 事件
+- 发出结构化 UI 事件（状态、权限、工具生命周期）
 - 按安全/不安全工具分组执行
 - 执行 `PreToolUse` / `PostToolUse` hooks
 - 在工具执行前应用权限检查
@@ -83,7 +87,7 @@ cli.py
 
 ### `hooks.py`
 
-- 从 `~/.claude/settings.json` 加载 hook 配置
+- 从 `~/.termpilot/settings.json` 加载 hook 配置
 - 定义 hook 事件与 matcher 结构
 - 异步执行 shell command hook
 - 解析 stdout JSON 中的 allow / deny / updated_input 信息
@@ -96,7 +100,7 @@ cli.py
 
 ### `session.py`
 
-- 将 transcript 以 JSONL 保存到 `~/.claude/projects/...`
+- 将 transcript 以 JSONL 保存到 `~/.termpilot/projects/...`
 - 通过 parent UUID 链恢复历史会话
 - 存储会话标题等 metadata
 
@@ -127,6 +131,7 @@ cli.py
 
 当前工具族包括：
 
+- 目录摘要工具：`list_dir`
 - 核心文件/命令/搜索工具
 - 高级工作流工具：ask-user、agent、task、plan、notebook
 - Web 工具：`web_fetch`、`web_search`
@@ -163,7 +168,7 @@ Stop hook
 ## 配置流
 
 ```text
-~/.claude/settings.json
+~/.termpilot/settings.json
   ├─ config.py           → model / API key / base URL / env
   ├─ permissions.py      → 权限模式与规则
   ├─ hooks.py            → hook matchers

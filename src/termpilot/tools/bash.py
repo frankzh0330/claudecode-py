@@ -31,6 +31,7 @@ class BashTool:
             "IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `sed`, "
             "`awk`, or `echo` commands, unless explicitly instructed or after you have verified that "
             "a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool:\n"
+            " - Directory summary: Use list_dir (NOT ls, find, or tree)\n"
             " - File search: Use Glob (NOT find or ls)\n"
             " - Content search: Use Grep (NOT grep or rg)\n"
             " - Read files: Use Read (NOT cat/head/tail)\n"

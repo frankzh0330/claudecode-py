@@ -12,6 +12,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 
 - Multi-provider API support: Anthropic, OpenAI, OpenAI-compatible endpoints, and compatible providers such as Zhipu GLM
 - Streaming responses with Markdown-friendly terminal rendering
+- Quiet terminal UI with staged status updates, compact tool cards, and on-demand detail expansion
 - Tool-use loop: the model can call tools repeatedly until the task is complete
 - Concurrent tool execution for safe tools, serialized execution for unsafe tools
 - Permission system with five modes, persistent rules, path validation, and dangerous-command detection
@@ -27,6 +28,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 
 | Tool | Name | Description | Concurrency-safe | Needs confirmation |
 |------|------|-------------|------------------|--------------------|
+| Directory summary | `list_dir` | Summarize a directory layout without dumping a full `ls`/`find` listing | ✅ | ❌ |
 | Read file | `read_file` | Read file contents with line numbers, `offset`, and `limit` | ✅ | ❌ |
 | Write file | `write_file` | Create or overwrite files and auto-create parent directories | ❌ | ✅ |
 | Edit file | `edit_file` | Exact string replacement with optional `replace_all` | ❌ | ✅ |
@@ -130,6 +132,7 @@ termpilot -s <session-id>
 
 | Command | Description |
 |---------|-------------|
+| `/details last`, `/details <n>` | Show the full output for the most recent or a specific tool result |
 | `/help` | Show available commands |
 | `/compact` | Trigger manual context compaction |
 | `/clear` | Clear conversation history |
@@ -204,6 +207,12 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ## Reference Implementation
 
 The project is still being refined with reference to an upstream TypeScript implementation, but `TermPilot` keeps its own product identity, packaging, and documentation.
+
+## UI Notes
+
+- The default CLI experience is intentionally quiet: long raw tool output is collapsed into compact cards instead of being printed in full.
+- When the model is still gathering context, the CLI shows short-lived staged statuses such as `Coalescing…`, project inspection, and summarization.
+- Permission prompts use a keyboard-friendly menu (`↑` / `↓` + Enter) instead of numeric input.
 
 ## Development
 

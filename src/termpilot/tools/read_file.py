@@ -34,7 +34,7 @@ class ReadFileTool:
             "- You can optionally specify a line offset and limit (especially handy for long files), "
             "but it's recommended to read the whole file by not providing these parameters\n"
             "- Results are returned using cat -n format, with line numbers starting at 1\n"
-            "- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.\n"
+            "- This tool can only read files, not directories. To inspect a directory, use the list_dir tool.\n"
             "- If you read a file that exists but has empty contents you will receive a system reminder warning "
             "in place of file contents."
         )

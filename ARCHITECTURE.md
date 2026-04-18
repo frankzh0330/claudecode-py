@@ -10,8 +10,9 @@ This document summarizes the current architecture of `termpilot`, the responsibi
 ┌──────────────────────────────────────────────────────┐
 │                    CLI Layer                         │
 │                    cli.py                            │
-│  REPL / one-shot mode · rendering · permission UI    │
-│  slash command dispatch · session startup            │
+│  REPL / one-shot mode · quiet rendering              │
+│  permission menu · tool cards · slash command        │
+│  dispatch · session startup                          │
 ├──────────────────────────────────────────────────────┤
 │                    API Layer                         │
 │                    api.py                            │
@@ -60,13 +61,16 @@ Guidelines:
 - Runs REPL and one-shot execution
 - Initializes sessions, undo state, MCP, and skills
 - Dispatches `SessionStart`, `UserPromptSubmit`, and `Stop` hooks
-- Renders markdown/tool output with `rich`
+- Renders markdown, staged statuses, and compact tool cards with `rich`
+- Stores recent tool results for `/details`
+- Uses keyboard-friendly permission menus
 - Handles slash commands from `commands.py`
 
 ### `api.py`
 
 - Creates Anthropic/OpenAI-compatible clients
 - Streams text and tool-use events
+- Emits structured UI events for status, permission, and tool lifecycle changes
 - Executes tool calls with safe/unsafe concurrency partitioning
 - Runs `PreToolUse` and `PostToolUse` hooks
 - Applies permission checks before tool execution
@@ -83,7 +87,7 @@ Guidelines:
 
 ### `hooks.py`
 
-- Loads hook configuration from `~/.claude/settings.json`
+- Loads hook configuration from `~/.termpilot/settings.json`
 - Defines hook events and matcher structures
 - Executes shell-command hooks asynchronously
 - Parses hook stdout JSON for allow/deny/input-update behavior
@@ -96,7 +100,7 @@ Guidelines:
 
 ### `session.py`
 
-- Persists transcript entries as JSONL under `~/.claude/projects/...`
+- Persists transcript entries as JSONL under `~/.termpilot/projects/...`
 - Restores session history by replaying the parent UUID chain
 - Stores metadata such as generated conversation titles
 
@@ -127,6 +131,7 @@ Guidelines:
 
 Current tool families:
 
+- Directory summary tool: `list_dir`
 - Core file/shell/search tools
 - Advanced workflow tools: ask-user, agent, task, plan, notebook
 - Web tools: `web_fetch`, `web_search`
@@ -163,7 +168,7 @@ Stop hook
 ## Configuration Flow
 
 ```text
-~/.claude/settings.json
+~/.termpilot/settings.json
   ├─ config.py           → model / API key / base URL / env
   ├─ permissions.py      → permission rules and mode
   ├─ hooks.py            → hook matchers

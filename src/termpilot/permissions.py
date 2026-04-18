@@ -101,6 +101,7 @@ class PermissionContext:
 
 # 只读工具 — 自动放行，不需要权限检查
 SAFE_TOOLS = frozenset({
+    "list_dir",
     # 文件读取/搜索
     "read_file",
     "glob",

@@ -35,6 +35,7 @@ from termpilot.permissions import (
 from termpilot.session import SessionStorage, list_sessions, load_session
 from termpilot.skills import discover_and_load_skills
 from termpilot.tools import get_all_tools
+from termpilot.ui import QuietUI
 
 DEFAULT_MODEL = "gpt-4o"
 
@@ -48,6 +49,8 @@ async def _permission_prompt(
         message: str,
 ) -> PermissionResult:
     """权限确认提示。对应 TS useCanUseTool.tsx 的用户交互部分。"""
+    import questionary
+
     console.print()
     console.rule("[bold yellow]权限请求[/]")
     console.print(f"[bold]{tool_name}[/] — {message}")
@@ -60,14 +63,22 @@ async def _permission_prompt(
         console.print(f"  [dim]文件:[/] {tool_input.get('file_path', '')}")
 
     console.print()
-    console.print("[bold]选择:[/]")
-    console.print("  [1] Allow once    (本次允许)")
-    console.print("  [2] Always allow  (始终允许同类操作)")
-    console.print("  [3] Deny          (拒绝)")
-    console.print("  [4] Always deny   (始终拒绝同类操作)")
 
     try:
-        choice = console.input("[bold green]选择 [1-4]: [/]").strip()
+        loop = asyncio.get_event_loop()
+        choice = await loop.run_in_executor(
+            None,
+            lambda: questionary.select(
+                "选择操作",
+                choices=[
+                    questionary.Choice("Allow once    (本次允许)", value="1"),
+                    questionary.Choice("Always allow  (始终允许同类操作)", value="2"),
+                    questionary.Choice("Deny          (拒绝)", value="3"),
+                    questionary.Choice("Always deny   (始终拒绝同类操作)", value="4"),
+                ],
+                use_shortcuts=False,
+            ).ask(),
+        )
     except (KeyboardInterrupt, EOFError):
         choice = "3"
 
@@ -109,6 +120,7 @@ async def _stream_response_with_tools(
         permission_context: PermissionContext | None = None,
         session_id: str = "",
         cost_tracker: Any | None = None,
+        ui: QuietUI | None = None,
 ) -> str:
     """带工具调用的流式响应。
 
@@ -126,44 +138,44 @@ async def _stream_response_with_tools(
         full_response += chunk
 
     def on_tool_call(name: str, input_data: dict, result: str) -> None:
-        # 对应 TS 中工具调用的 UI 渲染
-        console.print()
-        console.rule(f"[bold blue]工具调用: {name}[/]")
-        # 显示参数（截断过长的）
-        args_str = str(input_data)
-        if len(args_str) > 200:
-            args_str = args_str[:200] + "..."
-        console.print(f"[dim]参数: {args_str}[/]")
-        console.print()
-        # 显示结果（截断过长的）
-        if len(result) > 1000:
-            console.print(Markdown(result[:1000] + "\n..."))
-        else:
-            console.print(Markdown(result))
-        console.rule()
-
         # 记录工具调用到 session
         if storage:
             storage.record_tool_call(name, input_data, result)
 
-    full_response = await query_with_tools(
-        client=client,
-        model=model,
-        system_prompt=system_prompt,
-        messages=messages,
-        tools=tools,
-        on_text=on_text,
-        on_tool_call=on_tool_call,
-        permission_context=permission_context,
-        on_permission_ask=_permission_prompt,
-        session_id=session_id,
-        cost_tracker=cost_tracker,
-    )
+    def on_event(event: dict[str, Any]) -> None:
+        if ui:
+            ui.handle_event(event)
+
+    if ui:
+        ui.handle_event({"type": "status_started", "text": "Coalescing…"})
+    try:
+        full_response = await query_with_tools(
+            client=client,
+            model=model,
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=tools,
+            on_text=on_text,
+            on_tool_call=on_tool_call,
+            on_event=on_event,
+            permission_context=permission_context,
+            on_permission_ask=_permission_prompt,
+            session_id=session_id,
+            cost_tracker=cost_tracker,
+        )
+    except Exception:
+        if ui:
+            ui.handle_event({"type": "status_cleared"})
+        raise
 
     # 最终渲染完整响应
     if full_response.strip():
+        if ui:
+            ui.handle_event({"type": "status_cleared"})
         console.print()
         console.print(Markdown(full_response))
+    elif ui:
+        ui.handle_event({"type": "status_cleared"})
 
     # 显示本轮费用
     if cost_tracker:
@@ -181,6 +193,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     logger.debug("=== single_prompt mode: model=%s, prompt=%r", model, prompt[:100])
 
     storage = SessionStorage()
+    ui = QuietUI(console)
     storage.start_session()
     logger.debug("session started: %s", storage.session_id)
 
@@ -249,6 +262,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
             permission_context=permission_context,
             session_id=storage.session_id or "",
             cost_tracker=cost_tracker,
+            ui=ui,
         )
     except Exception as api_exc:
         _print_connection_error(api_exc)
@@ -300,7 +314,8 @@ def _pick_session(sessions: list[dict]) -> str | None:
     console.print(table)
 
     try:
-        choice = console.input("[bold green]选择会话编号（直接回车取消）: [/]")
+        import questionary as _q
+        choice = _q.text("选择会话编号（直接回车取消）:").ask() or ""
         if not choice.strip():
             return None
         idx = int(choice.strip()) - 1
@@ -330,6 +345,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     """交互循环模式。"""
     logger.debug("=== interactive mode: model=%s, resume_session_id=%s", model, resume_session_id)
     storage = SessionStorage()
+    ui = QuietUI(console)
 
     if resume_session_id:
         # 恢复模式 — 加载历史消息
@@ -442,6 +458,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     "client": client,
                     "model": model,
                     "mcp_manager": mcp_manager,
+                    "ui": ui,
                 }
                 result = await dispatch_command(cmd_name, cmd_args, cmd_context)
                 logger.debug("command result: exit_repl=%s, should_query=%s, output=%d chars",
@@ -476,6 +493,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                             permission_context=permission_context,
                             session_id=storage.session_id or "",
                             cost_tracker=cost_tracker,
+                            ui=ui,
                         )
                     except Exception as api_exc:
                         _print_connection_error(api_exc)
@@ -538,6 +556,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     permission_context=permission_context,
                     session_id=storage.session_id or "",
                     cost_tracker=cost_tracker,
+                    ui=ui,
                 )
             except Exception as api_exc:
                 _print_connection_error(api_exc)

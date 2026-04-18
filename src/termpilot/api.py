@@ -186,6 +186,7 @@ async def _execute_tools_concurrent(
         tool_use_blocks: list[dict[str, Any]],
         tools: list[Tool],
         on_tool_call: Any = None,
+        on_event: Any = None,
         permission_context: PermissionContext | None = None,
         on_permission_ask: Any = None,
         session_id: str = "",
@@ -219,6 +220,13 @@ async def _execute_tools_concurrent(
             # 未知工具直接生成错误结果
             logger.debug("unknown tool: %s", tb["name"])
             result_text = f"错误：未知工具 '{tb['name']}'"
+            if on_event:
+                on_event({
+                    "type": "tool_failed",
+                    "name": tb["name"],
+                    "input": tb["input"],
+                    "result": result_text,
+                })
             if on_tool_call:
                 on_tool_call(tb["name"], tb["input"], result_text)
             tool_results.append({
@@ -261,6 +269,13 @@ async def _execute_tools_concurrent(
 
                 if perm_result.behavior == PermissionBehavior.DENY:
                     result_text = f"权限拒绝: {perm_result.message}"
+                    if on_event:
+                        on_event({
+                            "type": "tool_failed",
+                            "name": tb["name"],
+                            "input": tb["input"],
+                            "result": result_text,
+                        })
                     if on_tool_call:
                         on_tool_call(tb["name"], tb["input"], result_text)
                     tool_results.append({
@@ -272,6 +287,13 @@ async def _execute_tools_concurrent(
 
                 if perm_result.behavior == PermissionBehavior.ASK:
                     if on_permission_ask:
+                        if on_event:
+                            on_event({
+                                "type": "permission_requested",
+                                "name": tb["name"],
+                                "input": tb["input"],
+                                "message": perm_result.message,
+                            })
                         user_result = await on_permission_ask(
                             tb["name"], tb["input"], perm_result.message,
                         )
@@ -288,6 +310,13 @@ async def _execute_tools_concurrent(
 
                         if user_result.behavior == PermissionBehavior.DENY:
                             result_text = f"权限拒绝: {user_result.message or '用户拒绝'}"
+                            if on_event:
+                                on_event({
+                                    "type": "tool_failed",
+                                    "name": tb["name"],
+                                    "input": tb["input"],
+                                    "result": result_text,
+                                })
                             if on_tool_call:
                                 on_tool_call(tb["name"], tb["input"], result_text)
                             tool_results.append({
@@ -299,6 +328,13 @@ async def _execute_tools_concurrent(
                     else:
                         # 没有回调时默认拒绝
                         result_text = f"权限拒绝: 需要用户确认但无交互界面"
+                        if on_event:
+                            on_event({
+                                "type": "tool_failed",
+                                "name": tb["name"],
+                                "input": tb["input"],
+                                "result": result_text,
+                            })
                         tool_results.append({
                             "role": "tool",
                             "tool_call_id": tb["id"],
@@ -321,10 +357,18 @@ async def _execute_tools_concurrent(
 
         async def _run_safe(tb: dict, tool: Tool) -> dict[str, Any]:
             async with semaphore:
+                if on_event:
+                    on_event({
+                        "type": "tool_started",
+                        "name": tb["name"],
+                        "input": tb["input"],
+                    })
                 try:
                     result_text = await tool.call(**tb["input"])
+                    success = True
                 except Exception as e:
                     result_text = f"工具执行错误: {e}"
+                    success = False
             # 处理大型工具结果（持久化到磁盘）
             result_text = process_tool_result(result_text, tb["id"], tb["name"])
             # PostToolUse Hook
@@ -340,6 +384,13 @@ async def _execute_tools_concurrent(
             for hr in hook_results:
                 if hr.exit_code == 2 and hr.stderr:
                     result_text += f"\n\n[Hook warning: {hr.stderr}]"
+            if on_event:
+                on_event({
+                    "type": "tool_finished" if success else "tool_failed",
+                    "name": tb["name"],
+                    "input": tb["input"],
+                    "result": result_text,
+                })
             if on_tool_call:
                 on_tool_call(tb["name"], tb["input"], result_text)
             return {
@@ -356,10 +407,18 @@ async def _execute_tools_concurrent(
 
     # 2. 不安全的串行跑（对应 TS runToolsSerially）
     for tb, tool in unsafe_tasks:
+        if on_event:
+            on_event({
+                "type": "tool_started",
+                "name": tb["name"],
+                "input": tb["input"],
+            })
         try:
             result_text = await tool.call(**tb["input"])
+            success = True
         except Exception as e:
             result_text = f"工具执行错误: {e}"
+            success = False
         # 处理大型工具结果（持久化到磁盘）
         result_text = process_tool_result(result_text, tb["id"], tb["name"])
         # PostToolUse Hook
@@ -375,6 +434,13 @@ async def _execute_tools_concurrent(
         for hr in hook_results:
             if hr.exit_code == 2 and hr.stderr:
                 result_text += f"\n\n[Hook warning: {hr.stderr}]"
+        if on_event:
+            on_event({
+                "type": "tool_finished" if success else "tool_failed",
+                "name": tb["name"],
+                "input": tb["input"],
+                "result": result_text,
+            })
         if on_tool_call:
             on_tool_call(tb["name"], tb["input"], result_text)
         tool_results.append({
@@ -395,6 +461,7 @@ async def query_with_tools(
         max_tokens: int = 4096,
         on_text: Any = None,
         on_tool_call: Any = None,
+        on_event: Any = None,
         permission_context: PermissionContext | None = None,
         on_permission_ask: Any = None,
         session_id: str = "",
@@ -433,6 +500,7 @@ async def query_with_tools(
         text_chunks: list[str] = []
         tool_use_blocks: list[dict[str, Any]] = []
         iteration_usage: dict[str, int] | None = None
+        assistant_started = False
 
         stream = _call_openai_streaming(
             client, model, system_prompt, current_messages, tools_schema, max_tokens,
@@ -440,6 +508,9 @@ async def query_with_tools(
 
         async for event in stream:
             if event["type"] == "text":
+                if not assistant_started and on_event:
+                    on_event({"type": "assistant_text_started"})
+                    assistant_started = True
                 text_chunks.append(event["content"])
                 if on_text:
                     on_text(event["content"])
@@ -491,13 +562,15 @@ async def query_with_tools(
 
         # 2. 并发执行工具调用
         tool_results = await _execute_tools_concurrent(
-            tool_use_blocks, tools, on_tool_call,
+            tool_use_blocks, tools, on_tool_call, on_event,
             permission_context, on_permission_ask,
             session_id=session_id,
         )
 
         # 3. 将 tool results 作为独立的 role=tool 消息追加
         current_messages.extend(tool_results)
+        if on_event:
+            on_event({"type": "status_updated", "text": "Summarizing findings…"})
 
         final_text = assistant_text  # 保留最后一轮的文本
         logger.debug("tool results appended, messages in context: %d", len(current_messages))

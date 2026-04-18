@@ -25,8 +25,10 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
     from termpilot.tools.bash import BashTool
     from termpilot.tools.glob_tool import GlobTool
     from termpilot.tools.grep_tool import GrepTool
+    from termpilot.tools.list_dir import ListDirTool
 
     tools: list[Tool] = [
+        ListDirTool(),
         ReadFileTool(),
         WriteFileTool(),
         EditFileTool(),

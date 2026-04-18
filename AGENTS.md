@@ -1,21 +1,22 @@
 # TermPilot
 
-Codex 的 Python 实现版。一个运行在终端的 AI 编程助手，支持工具调用、权限系统和事件钩子。
+Claude Code 的 Python 实现版。一个运行在终端的 AI 编程助手，支持工具调用、权限系统和事件钩子。
 
 > 本项目是 [TermPilot](https://github.com/frankzh0330/termpilot) 的 Python 实现，逐阶段开发中。
 
 ## 技术栈
 
-- Python 3.12+ / asyncio
+- Python 3.10+ / asyncio
 - click (CLI) + rich (终端渲染)
+- questionary（Provider 配置向导 + 权限选择菜单）
 - anthropic / openai SDK（API 调用，按需安装）
 
 ## 项目结构
 
 ```
 src/termpilot/
-├── cli.py            # CLI 入口 + 权限 UI + hook dispatch + slash commands
-├── api.py            # 工具调用循环 + 流式响应 + PreToolUse/PostToolUse hooks
+├── cli.py            # CLI 入口 + quiet UI + 权限菜单 + slash commands
+├── api.py            # 工具调用循环 + 流式响应 + UI 事件 + PreToolUse/PostToolUse hooks
 ├── context.py        # System Prompt 构建（13 个 section）
 ├── config.py         # 配置管理（settings.json + 环境变量）
 ├── hooks.py          # Hooks 系统（5 个事件，command 类型）
@@ -32,7 +33,7 @@ src/termpilot/
 │   ├── client.py     # MCP 客户端（JSON-RPC 通信）
 │   ├── transport.py  # 传输层（stdio/sse）
 │   └── config.py     # MCP 配置读取（settings.json + .mcp.json）
-└── tools/            # 工具（6 核心 + Web + MCP 动态 + Skill）
+└── tools/            # 工具（含 list_dir + 核心工具 + Web + MCP 动态 + Skill）
 ```
 
 ## 关键文档
@@ -65,17 +66,25 @@ src/termpilot/
 
 ## TS 源码位置
 
-TypeScript 原版源码在 `/Users/frank/Documents/source_code/Codex`。每个 Python 模块的 docstring 都标注了对应的 TS 源码文件。开发时参照 TS 版逻辑，Python 版做精简重写。
+TypeScript 原版源码在 `/Users/frank/Documents/source_code/claude_code`。每个 Python 模块的 docstring 都标注了对应的 TS 源码文件。开发时参照 TS 版逻辑，Python 版做精简重写。
 
 ## 运行
 
 ```bash
-python -m termpilot              # 交互模式
-python -m termpilot -p "问题"     # 单次模式
-python -m termpilot --resume      # 恢复会话
+python -m termpilot               # 交互模式
+python -m termpilot -p "问题"      # 单次模式
+python -m termpilot --resume       # 恢复会话
+python -m termpilot model          # 重新配置 provider / API key
 python3 scripts/check.py          # 质量检查
 ```
 
 ## 配置
 
-`~/.Codex/settings.json`，支持 Anthropic / OpenAI / 智谱 GLM 等接口。详见 README.md。
+`~/.termpilot/settings.json`，支持 Anthropic / OpenAI / 智谱 GLM 等接口。首次启动会引导交互式配置。
+
+## CLI 交互约定
+
+- 默认是安静型终端体验：优先显示阶段状态、紧凑工具卡片和最终结论，而不是整段原始工具输出。
+- 目录/项目结构探索优先使用 `list_dir`、`glob`、`grep`、`read_file`，不要默认退回 `bash ls` / `find`。
+- 权限确认使用方向键菜单，不再依赖数字输入。
+- 如需查看完整工具输出，可使用 `/details last` 或 `/details <n>`。
