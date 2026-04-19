@@ -460,6 +460,7 @@ async def full_compact(
         client: Any,
         model: str,
         context_window: int = CONTEXT_WINDOW_DEFAULT,
+        client_format: str = "openai",
 ) -> list[dict]:
     """完整压缩：用 LLM 为旧消息生成摘要。
 
@@ -484,15 +485,27 @@ async def full_compact(
     if not old_text.strip():
         return messages
 
-    # 调用 LLM 生成摘要（OpenAI-compatible 格式）
+    # 调用 LLM 生成摘要
     try:
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": f"{_COMPACT_PROMPT}\n\n---\n\n{old_text}"}],
-            max_tokens=4096,
-            stream=False,
-        )
-        summary_text = response.choices[0].message.content or ""
+        if client_format == "anthropic":
+            response = await client.messages.create(
+                model=model,
+                messages=[{"role": "user", "content": f"{_COMPACT_PROMPT}\n\n---\n\n{old_text}"}],
+                max_tokens=4096,
+            )
+            summary_text = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    summary_text = block.text
+                    break
+        else:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": f"{_COMPACT_PROMPT}\n\n---\n\n{old_text}"}],
+                max_tokens=4096,
+                stream=False,
+            )
+            summary_text = response.choices[0].message.content or ""
 
         summary = _extract_summary(summary_text)
         logger.info(
@@ -531,6 +544,7 @@ async def auto_compact_if_needed(
         model: str,
         context_window: int = CONTEXT_WINDOW_DEFAULT,
         force: bool = False,
+        client_format: str = "openai",
 ) -> list[dict]:
     """自动压缩入口。
 
@@ -564,7 +578,7 @@ async def auto_compact_if_needed(
     # Step 2: full-compact
     logger.info("Running full-compact (micro: %d → %d, force=%s)", tokens, tokens_after, force)
     result = await full_compact(
-        result, client, model, context_window,
+        result, client, model, context_window, client_format=client_format,
     )
     tokens_final = estimate_tokens(result, system_prompt)
     logger.info("Full-compact: %d → %d tokens", tokens, tokens_final)

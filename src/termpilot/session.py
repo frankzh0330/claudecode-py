@@ -526,6 +526,7 @@ async def generate_session_title(
         messages: list[dict[str, Any]],
         client: Any,
         model: str,
+        client_format: str = "openai",
 ) -> str:
     """从对话内容生成简短标题。
 
@@ -544,12 +545,24 @@ async def generate_session_title(
     prompt = _TITLE_PROMPT.format(conversation_text=text)
 
     try:
-        response = await client.chat.completions.create(
-            model=model,
-            max_tokens=50,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        title = response.choices[0].message.content.strip() if response.choices else ""
+        if client_format == "anthropic":
+            response = await client.messages.create(
+                model=model,
+                max_tokens=50,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            title = ""
+            for block in response.content:
+                if hasattr(block, "text"):
+                    title = block.text.strip()
+                    break
+        else:
+            response = await client.chat.completions.create(
+                model=model,
+                max_tokens=50,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            title = response.choices[0].message.content.strip() if response.choices else ""
 
         # 清理标题：去除引号、多余空格
         title = title.strip('"\'').strip()

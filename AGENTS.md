@@ -1,6 +1,6 @@
 # TermPilot
 
-Claude Code 的 Python 实现版。一个运行在终端的 AI 编程助手，支持工具调用、权限系统和事件钩子。
+一个运行在终端的 AI 编程助手，支持工具调用、权限系统和事件钩子。
 
 > 本项目是 [TermPilot](https://github.com/frankzh0330/termpilot) 的 Python 实现，逐阶段开发中。
 
@@ -27,7 +27,7 @@ src/termpilot/
 ├── token_tracker.py  # Token 精确计数 + 费用追踪
 ├── skills.py         # Skills 系统（磁盘加载 + frontmatter 解析）
 ├── commands.py       # Slash Commands（解析 + 分派 + skill 回退）
-├── claudemd.py       # AGENTS.md 加载
+├── termpilotmd.py    # TERMPILOT.md 加载
 ├── mcp/              # MCP 子包
 │   ├── __init__.py   # MCPManager（连接管理 + 工具收集）
 │   ├── client.py     # MCP 客户端（JSON-RPC 通信）
@@ -44,7 +44,7 @@ src/termpilot/
 | [docs/golden-rules.md](docs/golden-rules.md) | 机械化的编码规则 |
 | [docs/conventions.md](docs/conventions.md) | 命名、模式、文件组织规范 |
 | [docs/hooks.md](docs/hooks.md) | Hooks 系统详解 |
-| [docs/claudemd.md](docs/claudemd.md) | AGENTS.md 加载系统详解 |
+| [docs/termpilotmd.md](docs/termpilotmd.md) | TERMPILOT.md 加载系统详解 |
 | [docs/compact.md](docs/compact.md) | 上下文压缩系统详解 |
 | [docs/mcp.md](docs/mcp.md) | MCP/Skills/Commands 详解 |
 | [docs/system_prompt_sections.md](docs/system_prompt_sections.md) | System Prompt 13 个 section 详解 |
@@ -57,7 +57,7 @@ src/termpilot/
 | 2. System Prompt（13 sections） | ✅ |
 | 3. 权限系统 | ✅ |
 | 4. Hooks 系统 | ✅ |
-| 5. AGENTS.md 读取注入 | ✅ |
+| 5. TERMPILOT.md 读取注入 | ✅ |
 | 6. 上下文压缩 | ✅ |
 | 7. Message + Attachments | ✅ |
 | 8. 高级工具（Agent/Task/Plan） | ✅ |
@@ -66,7 +66,7 @@ src/termpilot/
 
 ## TS 源码位置
 
-TypeScript 原版源码在 `/Users/frank/Documents/source_code/claude_code`。每个 Python 模块的 docstring 都标注了对应的 TS 源码文件。开发时参照 TS 版逻辑，Python 版做精简重写。
+每个 Python 模块的 docstring 都标注了对应的 TypeScript 参考实现文件。开发时参照 TS 版逻辑，Python 版做精简重写。
 
 ## 运行
 

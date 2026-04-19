@@ -121,6 +121,7 @@ async def _stream_response_with_tools(
         session_id: str = "",
         cost_tracker: Any | None = None,
         ui: QuietUI | None = None,
+        client_format: str = "openai",
 ) -> str:
     """带工具调用的流式响应。
 
@@ -162,6 +163,7 @@ async def _stream_response_with_tools(
             on_permission_ask=_permission_prompt,
             session_id=session_id,
             cost_tracker=cost_tracker,
+            client_format=client_format,
         )
     except Exception:
         if ui:
@@ -215,7 +217,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     # 加载 skills
     discover_and_load_skills()
 
-    client = create_client()
+    client, client_format = create_client()
     logger.debug("client created")
     tools = get_all_tools(mcp_manager=mcp_manager)
     enabled_tools = {t.name for t in tools}
@@ -263,6 +265,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
             session_id=storage.session_id or "",
             cost_tracker=cost_tracker,
             ui=ui,
+            client_format=client_format,
         )
     except Exception as api_exc:
         _print_connection_error(api_exc)
@@ -274,7 +277,7 @@ async def _async_single_prompt(prompt: str, model: str) -> None:
     # 生成会话标题
     messages.append(create_assistant_message(response))
     from termpilot.session import generate_session_title
-    title = await generate_session_title(messages, client, model)
+    title = await generate_session_title(messages, client, model, client_format)
     if title:
         storage.save_metadata("custom-title", title)
         logger.debug("session title: %s", title)
@@ -376,7 +379,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     # 加载 skills
     discover_and_load_skills()
 
-    client = create_client()
+    client, client_format = create_client()
     logger.debug("client created")
     tools = get_all_tools(mcp_manager=mcp_manager)
     enabled_tools = {t.name for t in tools}
@@ -459,6 +462,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     "model": model,
                     "mcp_manager": mcp_manager,
                     "ui": ui,
+                    "client_format": client_format,
                 }
                 result = await dispatch_command(cmd_name, cmd_args, cmd_context)
                 logger.debug("command result: exit_repl=%s, should_query=%s, output=%d chars",
@@ -494,6 +498,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                             session_id=storage.session_id or "",
                             cost_tracker=cost_tracker,
                             ui=ui,
+                            client_format=client_format,
                         )
                     except Exception as api_exc:
                         _print_connection_error(api_exc)
@@ -557,6 +562,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                     session_id=storage.session_id or "",
                     cost_tracker=cost_tracker,
                     ui=ui,
+                    client_format=client_format,
                 )
             except Exception as api_exc:
                 _print_connection_error(api_exc)
@@ -569,7 +575,7 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             # 首轮对话后生成会话标题
             if not title_generated and len(messages) >= 2:
                 from termpilot.session import generate_session_title
-                title = await generate_session_title(messages, client, model)
+                title = await generate_session_title(messages, client, model, client_format)
                 if title:
                     storage.save_metadata("custom-title", title)
                     logger.debug("session title generated: %s", title)
