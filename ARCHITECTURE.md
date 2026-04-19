@@ -20,12 +20,12 @@ This document summarizes the current architecture of `termpilot`, the responsibi
 │  hook dispatch · permission gating · orchestration   │
 ├──────────────────────────────────────────────────────┤
 │                 Service Layer                        │
-│  permissions.py · hooks.py · compact.py · undo.py    │
+│  permissions.py · hooks.py · compact.py · undo.py   │
 │  session.py · tool_result_storage.py                 │
 ├──────────────────────────────────────────────────────┤
 │                 Context Layer                        │
 │  context.py · config.py · messages.py                │
-│  attachments.py · claudemd.py · skills.py            │
+│  attachments.py · termpilotmd.py · skills.py        │
 ├──────────────────────────────────────────────────────┤
 │                  Tool Layer                          │
 │  core tools · advanced tools · web tools             │
@@ -42,7 +42,7 @@ cli.py
   └─ api.py
       ├─ permissions.py / hooks.py / compact.py / undo.py
       ├─ context.py / config.py / messages.py / session.py
-      ├─ attachments.py / tool_result_storage.py / claudemd.py / skills.py
+      ├─ attachments.py / tool_result_storage.py / termpilotmd.py / skills.py
       └─ tools/*.py / mcp/*
 ```
 
@@ -118,11 +118,11 @@ Guidelines:
 - `tool_result_storage.py`: persistence/truncation of oversized tool outputs
 - `token_tracker.py`: exact token counting from API usage and per-model cost tracking
 
-### `skills.py`, `commands.py`, `claudemd.py`
+### `skills.py`, `commands.py`, `termpilotmd.py`
 
 - `skills.py`: loads bundled and disk-based skills
 - `commands.py`: builtin slash commands plus skill fallback
-- `claudemd.py`: discovers layered `CLAUDE.md` / rules files for prompt injection
+- `termpilotmd.py`: discovers layered `TERMPILOT.md` / rules files for prompt injection
 
 ### `mcp/*` and `tools/*`
 
@@ -174,21 +174,3 @@ Stop hook
   ├─ hooks.py            → hook matchers
   └─ mcp/config.py       → MCP server definitions
 ```
-
-## TypeScript Alignment
-
-The Python project is a staged rewrite of the TypeScript implementation. It intentionally keeps the same high-level responsibilities while simplifying some subsystems.
-
-Representative mappings:
-
-| Python | TypeScript |
-|--------|------------|
-| `cli.py` | `main.tsx`, `entrypoints/cli.tsx` |
-| `api.py` | `query.ts`, `services/api/claude.ts`, `toolOrchestration.ts` |
-| `permissions.py` | `utils/permissions/` |
-| `hooks.py` | `services/hooks/` |
-| `context.py` | `utils/systemPrompt.ts`, `constants/prompts.ts` |
-| `session.py` | `utils/conversation.ts`, `utils/sessionTitle.ts` |
-| `compact.py` | `services/compact/` |
-| `mcp/*` | `services/mcp/` |
-| `tools/*` | `tools/*Tool/` |

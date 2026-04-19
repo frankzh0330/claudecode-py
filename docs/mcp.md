@@ -55,8 +55,8 @@ Skills are lightweight reusable prompt templates loaded from markdown files with
 
 Current sources:
 
-- `~/.claude/skills/*.md`
-- `<cwd>/.claude/skills/*.md`
+- `~/.termpilot/skills/*.md`
+- `<cwd>/.termpilot/skills/*.md`
 
 Project-local skills override user-global skills of the same name.
 
@@ -70,6 +70,7 @@ Current builtin set includes:
 - `/compact`
 - `/clear`
 - `/config`
+- `/details`
 - `/skills`
 - `/mcp`
 - `/undo`

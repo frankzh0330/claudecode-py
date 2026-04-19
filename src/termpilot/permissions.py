@@ -15,7 +15,7 @@ TS 版 ~8000 行（24 文件），Python 版保留核心：
 - 规则引擎（allow/deny/ask + 通配符匹配）
 - 工具安全白名单（只读工具 + 元数据工具）
 - Bash 危险命令检测（30+ 模式）
-- 路径安全验证（.git/, .claude/, shell 配置, 路径穿越, shell 展开）
+- 路径安全验证（.git/, .termpilot/, shell 配置, 路径穿越, shell 展开）
 - 规则来源优先级（cli > session > local > project > user > policy）
 """
 
@@ -149,13 +149,13 @@ _PROTECTED_FILES = frozenset({
     ".profile",
     ".ripgreprc",
     ".mcp.json",
-    ".claude.json",
+    ".termpilot.json",
 })
 
 # 受保护的目录名（不区分大小写）
 _PROTECTED_DIRS = frozenset({
     ".git",
-    ".claude",
+    ".termpilot",
     ".ssh",
     ".gnupg",
 })
@@ -177,7 +177,7 @@ def validate_path_safety(file_path: str, operation: str = "write") -> str | None
     1. 路径穿越（../）
     2. Shell 展开语法（$VAR, $(cmd)）
     3. 受保护的文件（shell 配置、git 配置等）
-    4. 受保护的目录（.git/, .claude/, .ssh/）
+    4. 受保护的目录（.git/, .termpilot/, .ssh/）
     5. 写入操作的 glob 模式
     """
     if not file_path:
@@ -205,9 +205,9 @@ def validate_path_safety(file_path: str, operation: str = "write") -> str | None
     # 4. 受保护的目录
     for part in parts:
         if part.lower() in _PROTECTED_DIRS:
-            # .claude 目录下的 memory/ 允许写入（memory 系统需要）
-            if part.lower() == ".claude":
-                # 允许 .claude/projects/*/memory/ 写入
+            # .termpilot 目录下的 memory/ 允许写入（memory 系统需要）
+            if part.lower() == ".termpilot":
+                # 允许 .termpilot/projects/*/memory/ 写入
                 continue
             return f"受保护的目录: {part}/"
 

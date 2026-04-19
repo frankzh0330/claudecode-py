@@ -109,6 +109,8 @@ _PROVIDERS: dict[str, dict[str, Any]] = {
         "env_key": "DASHSCOPE_API_KEY",
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "default_model": "qwen-plus",
+        "base_url_env_key": "DASHSCOPE_BASE_URL",
+        "model_env_key": "DASHSCOPE_MODEL",
     },
     "Moonshot / Kimi": {
         "provider": "moonshot",

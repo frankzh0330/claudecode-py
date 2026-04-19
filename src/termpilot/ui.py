@@ -30,7 +30,7 @@ class ToolResultEntry:
 
 
 class QuietUI:
-    """Render a quieter Claude Code / Codex-like CLI experience."""
+    """Render a quieter modern terminal coding-agent experience."""
 
     def __init__(self, console: Console) -> None:
         self.console = console

@@ -55,8 +55,8 @@ Skills 是轻量级可复用 prompt 模板，来自带 frontmatter 的 Markdown 
 
 当前来源：
 
-- `~/.claude/skills/*.md`
-- `<cwd>/.claude/skills/*.md`
+- `~/.termpilot/skills/*.md`
+- `<cwd>/.termpilot/skills/*.md`
 
 同名情况下，项目级 skill 会覆盖用户全局 skill。
 
@@ -70,6 +70,7 @@ Skills 是轻量级可复用 prompt 模板，来自带 frontmatter 的 Markdown 
 - `/compact`
 - `/clear`
 - `/config`
+- `/details`
 - `/skills`
 - `/mcp`
 - `/undo`

@@ -154,8 +154,8 @@ async def dispatch_command(
         # 检查 userInvocable（对应 TS: command.userInvocable === false 的处理）
         if not skill.user_invocable:
             return CommandResult(
-                output=f'This skill can only be invoked by Claude, not directly by users. '
-                       f'Ask Claude to use the "{name}" skill for you.',
+                output=f'This skill can only be invoked by the assistant, not directly by users. '
+                       f'Ask the assistant to use the "{name}" skill for you.',
             )
 
         prompt = skill.get_prompt(args)
@@ -230,6 +230,7 @@ async def _cmd_compact(args: str, ctx: dict) -> CommandResult:
         client, model,
         context_window=context_window,
         force=True,  # 强制压缩
+        client_format=ctx.get("client_format", "openai"),
     )
 
     tokens_after = estimate_tokens(compacted, system_prompt)
@@ -311,7 +312,7 @@ async def _cmd_skills(args: str, ctx: dict) -> CommandResult:
 
     skills = get_all_skills()
     if not skills:
-        return CommandResult(output="No skills available. Create .claude/skills/*.md or ~/.termpilot/skills/*.md to add custom skills.")
+        return CommandResult(output="No skills available. Create .termpilot/skills/*.md or ~/.termpilot/skills/*.md to add custom skills.")
 
     lines = ["Available skills:", ""]
     for skill in sorted(skills, key=lambda s: s.name):
@@ -507,7 +508,7 @@ async def _cmd_commit(args: str, ctx: dict) -> CommandResult:
 # ── /init ──────────────────────────────────────────────
 
 _INIT_PROMPT = """\
-Analyze this project and create a CLAUDE.md file.
+Analyze this project and create a TERMPILOT.md file.
 
 ## Project root: {project_root}
 
@@ -516,9 +517,9 @@ Analyze this project and create a CLAUDE.md file.
 {dir_listing}
 ```
 
-## Existing CLAUDE.md
+## Existing TERMPILOT.md
 ```
-{existing_claudemd}
+{existing_termpilotmd}
 ```
 
 ## Project configuration files
@@ -532,19 +533,19 @@ Analyze this project and create a CLAUDE.md file.
    - Tech stack and frameworks used
    - How to build, test, and run it
    - Key directories and their purposes
-2. Create a CLAUDE.md file at the project root that includes:
+2. Create a TERMPILOT.md file at the project root that includes:
    - Project name and brief description
    - Tech stack
    - How to run, build, and test
    - Project structure overview
    - Any notable conventions or patterns
-3. Use the Write tool to create/update the CLAUDE.md file.
-4. Keep the CLAUDE.md concise and practical — focus on information that helps an AI assistant work effectively in this codebase.
+3. Use the Write tool to create/update the TERMPILOT.md file.
+4. Keep the TERMPILOT.md concise and practical — focus on information that helps an AI assistant work effectively in this codebase.
 5. Write in the same language as the existing documentation (or English if unclear)."""
 
 
 async def _cmd_init(args: str, ctx: dict) -> CommandResult:
-    """分析项目并生成 CLAUDE.md。
+    """分析项目并生成 TERMPILOT.md。
 
     对应 TS: commands/init.ts — prompt-based 命令。
     """
@@ -565,11 +566,11 @@ async def _cmd_init(args: str, ctx: dict) -> CommandResult:
 
     dir_listing = await _run("ls -la")
 
-    # 读取现有 CLAUDE.md
-    claudemd_path = Path("CLAUDE.md")
+    # 读取现有 TERMPILOT.md
+    termpilotmd_path = Path("TERMPILOT.md")
     existing = ""
-    if claudemd_path.exists():
-        existing = claudemd_path.read_text(encoding="utf-8")
+    if termpilotmd_path.exists():
+        existing = termpilotmd_path.read_text(encoding="utf-8")
 
     # 读取项目配置文件
     config_parts = []
@@ -585,7 +586,7 @@ async def _cmd_init(args: str, ctx: dict) -> CommandResult:
     prompt = _INIT_PROMPT.format(
         project_root=project_root,
         dir_listing=dir_listing or "(empty)",
-        existing_claudemd=existing or "(does not exist)",
+        existing_termpilotmd=existing or "(does not exist)",
         config_files="\n".join(config_parts) if config_parts else "(no config files found)",
     )
 
@@ -653,7 +654,7 @@ def register_builtin_commands() -> None:
     ))
     register_command(Command(
         name="init",
-        description="Generate CLAUDE.md for the current project",
+        description="Generate TERMPILOT.md for the current project",
         handler=_cmd_init,
     ))
 

@@ -20,12 +20,12 @@
 │  hook 分发 · 权限检查 · 工具编排                     │
 ├──────────────────────────────────────────────────────┤
 │                 Service Layer                        │
-│  permissions.py · hooks.py · compact.py · undo.py    │
+│  permissions.py · hooks.py · compact.py · undo.py   │
 │  session.py · tool_result_storage.py                 │
 ├──────────────────────────────────────────────────────┤
 │                 Context Layer                        │
 │  context.py · config.py · messages.py                │
-│  attachments.py · claudemd.py · skills.py            │
+│  attachments.py · termpilotmd.py · skills.py        │
 ├──────────────────────────────────────────────────────┤
 │                  Tool Layer                          │
 │  核心工具 · 高级工具 · Web 工具                      │
@@ -42,7 +42,7 @@ cli.py
   └─ api.py
       ├─ permissions.py / hooks.py / compact.py / undo.py
       ├─ context.py / config.py / messages.py / session.py
-      ├─ attachments.py / tool_result_storage.py / claudemd.py / skills.py
+      ├─ attachments.py / tool_result_storage.py / termpilotmd.py / skills.py
       └─ tools/*.py / mcp/*
 ```
 
@@ -118,11 +118,11 @@ cli.py
 - `tool_result_storage.py`：超大工具输出持久化与截断
 - `token_tracker.py`：从 API usage 提取精确 token 计数，按模型定价追踪费用
 
-### `skills.py`、`commands.py`、`claudemd.py`
+### `skills.py`、`commands.py`、`termpilotmd.py`
 
 - `skills.py`：加载内置和磁盘上的 skills
 - `commands.py`：内置 slash commands 与 skill fallback
-- `claudemd.py`：按层级发现 `CLAUDE.md` / rules 文件并注入 prompt
+- `termpilotmd.py`：按层级发现 `TERMPILOT.md` / rules 文件并注入 prompt
 
 ### `mcp/*` 与 `tools/*`
 
@@ -174,21 +174,3 @@ Stop hook
   ├─ hooks.py            → hook matchers
   └─ mcp/config.py       → MCP server 定义
 ```
-
-## 与 TypeScript 版的对应关系
-
-Python 项目是对 TypeScript 版的分阶段重写，保持高层职责一致，同时适当简化一些子系统。
-
-代表性映射：
-
-| Python | TypeScript |
-|--------|------------|
-| `cli.py` | `main.tsx`, `entrypoints/cli.tsx` |
-| `api.py` | `query.ts`, `services/api/claude.ts`, `toolOrchestration.ts` |
-| `permissions.py` | `utils/permissions/` |
-| `hooks.py` | `services/hooks/` |
-| `context.py` | `utils/systemPrompt.ts`, `constants/prompts.ts` |
-| `session.py` | `utils/conversation.ts`, `utils/sessionTitle.ts` |
-| `compact.py` | `services/compact/` |
-| `mcp/*` | `services/mcp/` |
-| `tools/*` | `tools/*Tool/` |

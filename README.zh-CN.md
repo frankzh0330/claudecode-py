@@ -17,7 +17,7 @@
 - 并发工具执行：安全工具并行执行，不安全工具串行执行
 - 权限系统：五种模式、持久化规则、路径验证、危险命令检测
 - Hook 系统：围绕 prompt 和工具调用的 shell 命令钩子
-- 自动加载 `CLAUDE.md` 项目级持久化指令
+- 自动加载 `TERMPILOT.md` 项目级持久化指令
 - 长对话上下文压缩
 - 会话持久化：可恢复的 JSONL 历史记录和自动生成的对话标题
 - MCP 集成：动态工具和资源
@@ -148,8 +148,8 @@ termpilot -s <session-id>
 
 ```text
 src/termpilot/
-├── cli.py            # CLI 入口，REPL，权限 UI，slash commands
-├── api.py            # 工具循环，流式响应，hooks，编排
+├── cli.py            # CLI 入口，quiet UI，权限菜单，slash commands
+├── api.py            # 工具循环，流式响应，UI 事件，hooks，编排
 ├── context.py        # System prompt 构建器
 ├── config.py         # 配置和环境变量解析
 ├── hooks.py          # Hook 系统
@@ -160,7 +160,7 @@ src/termpilot/
 ├── token_tracker.py  # Token 计数和费用追踪
 ├── skills.py         # Skill 加载和注册
 ├── commands.py       # Slash 命令
-├── claudemd.py       # CLAUDE.md 加载
+├── termpilotmd.py    # TERMPILOT.md 加载
 ├── mcp/              # MCP 客户端、传输和配置
 └── tools/            # 核心工具、Web 工具、高级工具、MCP 适配器
 ```
@@ -184,7 +184,7 @@ src/termpilot/
 - [docs/golden-rules.md](docs/golden-rules.md)：机械化编码规则
 - [docs/conventions.md](docs/conventions.md)：命名和组织约定
 - [docs/hooks.md](docs/hooks.md)：Hook 设计和行为
-- [docs/claudemd.md](docs/claudemd.md)：项目指令加载
+- [docs/termpilotmd.md](docs/termpilotmd.md)：项目指令加载
 - [docs/compact.md](docs/compact.md)：压缩策略
 - [docs/mcp.md](docs/mcp.md)：MCP、Skills 和命令
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md)：System Prompt 各 Section
@@ -197,7 +197,7 @@ src/termpilot/
 | 2 | System Prompt 各 Section | ✅ |
 | 3 | 权限系统 | ✅ |
 | 4 | Hooks 系统 | ✅ |
-| 5 | `CLAUDE.md` 加载 | ✅ |
+| 5 | `TERMPILOT.md` 加载 | ✅ |
 | 6 | 上下文压缩 | ✅ |
 | 7 | 消息和附件 | ✅ |
 | 8 | 高级工具：agent、task、ask-user、plan | ✅ |
@@ -225,6 +225,7 @@ cd termpilot
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+termpilot
 ```
 
 本地质量检查：

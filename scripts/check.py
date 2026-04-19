@@ -56,7 +56,7 @@ def section(title: str) -> None:
 def check_required_files() -> None:
     section("必要文件")
     required = [
-        "CLAUDE.md",
+        "TERMPILOT.md",
         "ARCHITECTURE.md",
         "README.md",
         "pyproject.toml",
@@ -177,9 +177,9 @@ def check_tool_implementations() -> None:
 
 def check_doc_links() -> None:
     section("文档引用")
-    # 检查 CLAUDE.md 中引用的文件是否存在
-    claude_md = PROJECT_ROOT / "CLAUDE.md"
-    content = claude_md.read_text(encoding="utf-8")
+    # 检查 TERMPILOT.md 中引用的文件是否存在
+    termpilot_md = PROJECT_ROOT / "TERMPILOT.md"
+    content = termpilot_md.read_text(encoding="utf-8")
 
     # 找 [xxx](yyy) 格式的链接
     links = re.findall(r"\[.*?\]\((.*?)\)", content)
@@ -188,9 +188,9 @@ def check_doc_links() -> None:
             continue
         path = PROJECT_ROOT / link
         if path.exists():
-            ok(f"CLAUDE.md → {link}")
+            ok(f"TERMPILOT.md → {link}")
         else:
-            fail(f"CLAUDE.md 引用了不存在的文件: {link}")
+            fail(f"TERMPILOT.md 引用了不存在的文件: {link}")
 
 
 # ---------------------------------------------------------------------------

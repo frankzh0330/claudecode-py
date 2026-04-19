@@ -75,7 +75,7 @@ def get_mcp_configs(cwd: str | Path | None = None) -> dict[str, McpServerConfig]
     对应 TS: config.ts getAllMcpConfigs()
 
     读取来源（合并，.mcp.json 覆盖 settings.json 同名项）：
-    1. ~/.claude/settings.json 的 mcpServers 字段
+    1. ~/.termpilot/settings.json 的 mcpServers 字段
     2. 项目级 .mcp.json 文件
     """
     configs: dict[str, McpServerConfig] = {}

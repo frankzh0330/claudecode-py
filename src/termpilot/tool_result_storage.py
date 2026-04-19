@@ -37,8 +37,8 @@ def _get_storage_dir() -> Path:
     对应 TS getToolResultsDir()。
     使用会话临时目录下的 tool-results 子目录。
     """
-    # 优先使用项目目录下的 .claude/tool-results
-    storage_dir = Path.cwd() / ".claude" / "tool-results"
+    # 优先使用项目目录下的 .termpilot/tool-results
+    storage_dir = Path.cwd() / ".termpilot" / "tool-results"
     storage_dir.mkdir(parents=True, exist_ok=True)
     return storage_dir
 

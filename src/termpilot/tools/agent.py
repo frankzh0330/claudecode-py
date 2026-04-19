@@ -174,7 +174,7 @@ class AgentTool:
         messages = [{"role": "user", "content": prompt}]
 
         # 调用 API
-        client = create_client()
+        client, client_format = create_client()
         model = get_effective_model()
 
         logger.debug("agent _run_agent: type=%s, tools=%d, prompt=%d chars",
@@ -193,6 +193,7 @@ class AgentTool:
                 on_tool_call=None,
                 permission_context=None,
                 on_permission_ask=None,
+                client_format=client_format,
             )
             return result or "(agent returned no text)"
 

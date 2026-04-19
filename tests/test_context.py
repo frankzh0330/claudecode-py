@@ -159,7 +159,7 @@ class TestLoadMemoryPrompt:
         # 创建 memory 目录和文件
         cwd = str(tmp_path / "project")
         encoded = cwd.replace("/", "-")
-        memory_dir = tmp_path / ".claude" / "projects" / encoded / "memory"
+        memory_dir = tmp_path / ".termpilot" / "projects" / encoded / "memory"
         memory_dir.mkdir(parents=True)
         (memory_dir / "MEMORY.md").write_text("- test memory entry", encoding="utf-8")
 

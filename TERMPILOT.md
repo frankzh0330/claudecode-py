@@ -2,7 +2,7 @@
 
 一个运行在终端的 AI 编程助手，支持工具调用、权限系统和事件钩子。
 
-> 本项目是 [TermPilot](https://github.com/frankzh0330/termpilot) 的 Python 实现，逐阶段开发中。
+> 本项目是终端 AI coding agent 的 Python 重写实现，逐阶段开发中。
 
 ## 技术栈
 
@@ -62,7 +62,8 @@ src/termpilot/
 | 7. Message + Attachments | ✅ |
 | 8. 高级工具（Agent/Task/Plan） | ✅ |
 | 9. MCP + Skills + Commands | ✅ |
-| 10. 对齐 TS 版缺失模块（进行中） | 🔲 |
+| 10. 对齐 TS 版缺失模块（Web 工具、Undo、Token 追踪、对话标题） | ✅ |
+| 11. P0 核心能力补齐（子代理递归、链回溯、Undo 持久化、权限完善） | ✅ |
 
 ## TS 源码位置
 
@@ -75,16 +76,9 @@ python -m termpilot               # 交互模式
 python -m termpilot -p "问题"      # 单次模式
 python -m termpilot --resume       # 恢复会话
 python -m termpilot model          # 重新配置 provider / API key
-python3 scripts/check.py          # 质量检查
+python3 scripts/check.py           # 质量检查
 ```
 
 ## 配置
 
 `~/.termpilot/settings.json`，支持 Anthropic / OpenAI / 智谱 GLM 等接口。首次启动会引导交互式配置。
-
-## CLI 交互约定
-
-- 默认是安静型终端体验：优先显示阶段状态、紧凑工具卡片和最终结论，而不是整段原始工具输出。
-- 目录/项目结构探索优先使用 `list_dir`、`glob`、`grep`、`read_file`，不要默认退回 `bash ls` / `find`。
-- 权限确认使用方向键菜单，不再依赖数字输入。
-- 如需查看完整工具输出，可使用 `/details last` 或 `/details <n>`。

@@ -139,7 +139,7 @@ class TestDiscoverAndLoadSkills:
         monkeypatch.setattr("termpilot.skills.Path.cwd", lambda: tmp_path / "project")
 
         # 用户全局 skills
-        user_dir = tmp_path / "home" / ".claude" / "skills"
+        user_dir = tmp_path / "home" / ".termpilot" / "skills"
         user_dir.mkdir(parents=True)
         (user_dir / "global.md").write_text(
             "---\nname: global-skill\ndescription: Global\n---\nGlobal content",
@@ -147,7 +147,7 @@ class TestDiscoverAndLoadSkills:
         )
 
         # 项目级 skills
-        proj_dir = tmp_path / "project" / ".claude" / "skills"
+        proj_dir = tmp_path / "project" / ".termpilot" / "skills"
         proj_dir.mkdir(parents=True)
         (proj_dir / "local.md").write_text(
             "---\nname: local-skill\ndescription: Local\n---\nLocal content",

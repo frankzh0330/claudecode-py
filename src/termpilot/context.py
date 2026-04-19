@@ -154,7 +154,7 @@ _TOOL_USAGE_SECTION = """\
 _ACTIONS_SECTION = """\
 # Executing actions with care
 
-Carefully consider the reversibility and blast radius of actions. Generally you can freely take local, reversible actions like editing files or running tests. But for actions that are hard to reverse, affect shared systems beyond your local environment, or could otherwise be risky or destructive, check with the user before proceeding. The cost of pausing to confirm is low, while the cost of an unwanted action (lost work, unintended messages sent, deleted branches) can be very high. For actions like these, consider the context, the action, and user instructions, and by default transparently communicate the action and ask for confirmation before proceeding. This default can be changed by user instructions - if explicitly asked to operate more autonomously, then you may proceed without confirmation, but still attend to the risks and consequences when taking actions. A user approving an action (like a git push) once does NOT mean that they approve it in all contexts, so unless actions are authorized in advance in durable instructions like CLAUDE.md files, always confirm first. Authorization stands for the scope specified, not beyond. Match the scope of your actions to what was actually requested.
+Carefully consider the reversibility and blast radius of actions. Generally you can freely take local, reversible actions like editing files or running tests. But for actions that are hard to reverse, affect shared systems beyond your local environment, or could otherwise be risky or destructive, check with the user before proceeding. The cost of pausing to confirm is low, while the cost of an unwanted action (lost work, unintended messages sent, deleted branches) can be very high. For actions like these, consider the context, the action, and user instructions, and by default transparently communicate the action and ask for confirmation before proceeding. This default can be changed by user instructions - if explicitly asked to operate more autonomously, then you may proceed without confirmation, but still attend to the risks and consequences when taking actions. A user approving an action (like a git push) once does NOT mean that they approve it in all contexts, so unless actions are authorized in advance in durable instructions like TERMPILOT.md files, always confirm first. Authorization stands for the scope specified, not beyond. Match the scope of your actions to what was actually requested.
 
 Examples of the kind of risky actions that warrant user confirmation:
 - Destructive operations: deleting files/branches, dropping database tables, killing processes, rm -rf, overwriting uncommitted changes
@@ -511,7 +511,7 @@ def load_memory_prompt() -> str | None:
         "- Code patterns, conventions, architecture, file paths, or project structure — these can be derived by reading the current project state.",
         "- Git history, recent changes, or who-changed-what — `git log` / `git blame` are authoritative.",
         "- Debugging solutions or fix recipes — the fix is in the code; the commit message has the context.",
-        "- Anything already documented in CLAUDE.md files.",
+        "- Anything already documented in TERMPILOT.md files.",
         "- Ephemeral task details: in-progress work, temporary state, current conversation context.",
         "",
         "These exclusions apply even when the user explicitly asks you to save. If they ask you to save "
@@ -691,7 +691,7 @@ def build_system_prompt(
     6. Tone & style section（含 GitHub 格式）
     7. Output efficiency section
     8. Session-specific guidance (动态)
-    8.5 CLAUDE.md 项目指令 (动态)
+    8.5 TERMPILOT.md 项目指令 (动态)
     9. Memory (动态)
     10. Environment info (动态，含模型名/TermPilot 渠道)
     11. Language (动态)
@@ -739,13 +739,13 @@ def build_system_prompt(
         parts.append("")
         parts.append(session_guidance)
 
-    # 8.5 CLAUDE.md 项目指令
-    from termpilot.claudemd import load_claude_md
-    claude_md = load_claude_md()
-    if claude_md:
-        logger.debug("CLAUDE.md injected: %d chars", len(claude_md))
+    # 8.5 TERMPILOT.md 项目指令
+    from termpilot.termpilotmd import load_termpilot_md
+    termpilot_md = load_termpilot_md()
+    if termpilot_md:
+        logger.debug("TERMPILOT.md injected: %d chars", len(termpilot_md))
         parts.append("")
-        parts.append(claude_md)
+        parts.append(termpilot_md)
 
     # 9. Memory
     memory = load_memory_prompt()

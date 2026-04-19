@@ -56,11 +56,15 @@ MAX_CONCURRENT_TOOLS = int(
 )
 
 
-def create_client() -> Any:
-    """创建 OpenAI-compatible API 客户端。对应 TS getAnthropicClient()。
+def create_client() -> tuple[Any, str]:
+    """创建 API 客户端。
 
-    所有 provider 统一使用 OpenAI SDK，因为绝大多数 LLM 平台
-    都兼容 OpenAI API 格式（包括 Anthropic 的 Messages API 兼容端点）。
+    返回 (client, client_format):
+    - client: AsyncOpenAI 或 AsyncAnthropic 实例
+    - client_format: "openai" 或 "anthropic"
+
+    Anthropic provider 使用 Anthropic SDK（原生消息格式）。
+    其他所有 provider 使用 OpenAI SDK（OpenAI 兼容格式）。
     """
     apply_settings_env()
 
@@ -75,18 +79,29 @@ def create_client() -> Any:
             f"Then run termpilot again."
         )
 
-    base_url = get_effective_base_url(provider)
+    if provider == "anthropic":
+        try:
+            from anthropic import AsyncAnthropic
+        except ImportError:
+            sys.exit(
+                "Anthropic SDK not installed.\n"
+                "Run: pip install anthropic"
+            )
+        base_url = get_effective_base_url(provider)
+        kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = AsyncAnthropic(**kwargs)
+        return client, "anthropic"
 
+    # OpenAI-compatible
+    base_url = get_effective_base_url(provider)
     try:
         from openai import AsyncOpenAI
     except ImportError:
         sys.exit("OpenAI SDK not installed. Run: pip install termpilot")
-
-    client = AsyncOpenAI(
-        api_key=api_key,
-        base_url=base_url,
-    )
-    return client
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    return client, "openai"
 
 
 async def _call_openai_streaming(
@@ -180,6 +195,98 @@ async def _call_openai_streaming(
             }
     except Exception:
         logger.debug("could not extract usage from OpenAI stream")
+
+
+async def _call_anthropic_streaming(
+        client: Any,
+        model: str,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        max_tokens: int = 4096,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Anthropic 原生格式的流式 API 调用。"""
+    # 转换消息格式：OpenAI → Anthropic
+    anthropic_messages: list[dict[str, Any]] = []
+    for msg in messages:
+        role = msg.get("role")
+        if role == "system":
+            continue  # system 通过 system_prompt 参数传递
+        if role == "user":
+            anthropic_messages.append({"role": "user", "content": msg.get("content", "")})
+        elif role == "assistant":
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                blocks: list[dict[str, Any]] = []
+                if content:
+                    blocks.append({"type": "text", "text": content})
+                for tc in tool_calls:
+                    func = tc.get("function", {})
+                    try:
+                        inp = json.loads(func.get("arguments", "{}"))
+                    except json.JSONDecodeError:
+                        inp = {}
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": tc["id"],
+                        "name": func.get("name", ""),
+                        "input": inp,
+                    })
+                anthropic_messages.append({"role": "assistant", "content": blocks})
+            else:
+                anthropic_messages.append({"role": "assistant", "content": content})
+        elif role == "tool":
+            # OpenAI tool result → Anthropic tool_result
+            anthropic_messages.append({
+                "role": "user",
+                "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": msg.get("content", ""),
+                }],
+            })
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "system": system_prompt,
+        "messages": anthropic_messages,
+        "max_tokens": max_tokens,
+    }
+    if tools:
+        kwargs["tools"] = [
+            {"name": t["name"], "description": t["description"], "input_schema": t["input_schema"]}
+            for t in tools
+        ]
+
+    async with client.messages.stream(**kwargs) as stream:
+        async for event in stream:
+            if event.type == "content_block_delta":
+                if hasattr(event.delta, "text"):
+                    yield {"type": "text", "content": event.delta.text}
+                elif hasattr(event.delta, "partial_json"):
+                    pass  # tool input 部分在 message 停止后统一处理
+            elif event.type == "message_stop":
+                # 获取完整消息以提取 tool_use blocks
+                message = await stream.get_final_message()
+                for block in message.content:
+                    if block.type == "tool_use":
+                        yield {
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input,
+                        }
+                if hasattr(message, "usage") and message.usage:
+                    yield {
+                        "type": "usage",
+                        "usage": {
+                            "input_tokens": getattr(message.usage, "input_tokens", 0) or 0,
+                            "output_tokens": getattr(message.usage, "output_tokens", 0) or 0,
+                            "cache_creation_input_tokens": getattr(message.usage, "cache_creation_input_tokens", 0) or 0,
+                            "cache_read_input_tokens": getattr(message.usage, "cache_read_input_tokens", 0) or 0,
+                        },
+                    }
 
 
 async def _execute_tools_concurrent(
@@ -466,6 +573,7 @@ async def query_with_tools(
         on_permission_ask: Any = None,
         session_id: str = "",
         cost_tracker: Any | None = None,
+        client_format: str = "openai",
 ) -> str:
     """带工具调用的完整查询循环。
 
@@ -490,6 +598,7 @@ async def query_with_tools(
         current_messages, system_prompt,
         client, model,
         context_window=context_window,
+        client_format=client_format,
     )
     final_text = ""
 
@@ -502,9 +611,14 @@ async def query_with_tools(
         iteration_usage: dict[str, int] | None = None
         assistant_started = False
 
-        stream = _call_openai_streaming(
-            client, model, system_prompt, current_messages, tools_schema, max_tokens,
-        )
+        if client_format == "anthropic":
+            stream = _call_anthropic_streaming(
+                client, model, system_prompt, current_messages, tools_schema, max_tokens,
+            )
+        else:
+            stream = _call_openai_streaming(
+                client, model, system_prompt, current_messages, tools_schema, max_tokens,
+            )
 
         async for event in stream:
             if event["type"] == "text":

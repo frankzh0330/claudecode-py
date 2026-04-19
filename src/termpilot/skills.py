@@ -4,7 +4,7 @@
 支持从磁盘加载 skill 定义（Markdown + YAML frontmatter）和内置 skill 注册。
 
 Skill 是一种可被模型通过 SkillTool 调用的可复用 prompt 模板。
-用户可在 .claude/skills/ 目录下创建 .md 文件定义自定义 skill。
+用户可在 .termpilot/skills/ 目录下创建 .md 文件定义自定义 skill。
 
 Skill 文件格式：
 ---
@@ -186,7 +186,7 @@ def discover_and_load_skills(cwd: str | Path | None = None) -> None:
 
     搜索路径（按优先级从低到高）：
     1. ~/.termpilot/skills/*.md（用户全局）
-    2. .claude/skills/*.md（项目级）
+    2. .termpilot/skills/*.md（项目级）
 
     后加载的覆盖先加载的（同名 skill 以项目级为准）。
     """
@@ -200,7 +200,7 @@ def discover_and_load_skills(cwd: str | Path | None = None) -> None:
         register_skill(skill)
 
     # 项目级 skills
-    project_skills_dir = cwd_path / ".claude" / "skills"
+    project_skills_dir = cwd_path / ".termpilot" / "skills"
     for skill in load_skills_from_dir(project_skills_dir):
         register_skill(skill)
 

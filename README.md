@@ -17,7 +17,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 - Concurrent tool execution for safe tools, serialized execution for unsafe tools
 - Permission system with five modes, persistent rules, path validation, and dangerous-command detection
 - Hook system for shell-command hooks around prompts and tool calls
-- Automatic `CLAUDE.md` loading for project-level persistent instructions
+- Automatic `TERMPILOT.md` loading for project-level persistent instructions
 - Context compaction for long conversations
 - Session persistence with resumable JSONL history and generated conversation titles
 - MCP integration for dynamic tools and resources
@@ -148,8 +148,8 @@ termpilot -s <session-id>
 
 ```text
 src/termpilot/
-├── cli.py            # CLI entrypoint, REPL, permission UI, slash commands
-├── api.py            # Tool loop, streaming, hooks, orchestration
+├── cli.py            # CLI entrypoint, quiet UI, permission menus, slash commands
+├── api.py            # Tool loop, streaming, UI events, hooks, orchestration
 ├── context.py        # System prompt builder
 ├── config.py         # Settings and environment resolution
 ├── hooks.py          # Hook system
@@ -160,7 +160,7 @@ src/termpilot/
 ├── token_tracker.py  # Token counting and cost tracking
 ├── skills.py         # Skill loading and registry
 ├── commands.py       # Slash commands
-├── claudemd.py       # CLAUDE.md loading
+├── termpilotmd.py    # TERMPILOT.md loading
 ├── mcp/              # MCP client, transport, and config
 └── tools/            # Core tools, web tools, advanced tools, MCP adapters
 ```
@@ -184,7 +184,7 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - [docs/golden-rules.md](docs/golden-rules.md): mechanical coding rules
 - [docs/conventions.md](docs/conventions.md): naming and organization conventions
 - [docs/hooks.md](docs/hooks.md): hook design and behavior
-- [docs/claudemd.md](docs/claudemd.md): project instruction loading
+- [docs/termpilotmd.md](docs/termpilotmd.md): project instruction loading
 - [docs/compact.md](docs/compact.md): compaction strategy
 - [docs/mcp.md](docs/mcp.md): MCP, skills, and commands
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md): system prompt sections
@@ -197,7 +197,7 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | 2 | System prompt sections | ✅ |
 | 3 | Permission system | ✅ |
 | 4 | Hooks system | ✅ |
-| 5 | `CLAUDE.md` loading | ✅ |
+| 5 | `TERMPILOT.md` loading | ✅ |
 | 6 | Context compaction | ✅ |
 | 7 | Messages and attachments | ✅ |
 | 8 | Advanced tools: agent, task, ask-user, plan | ✅ |
@@ -225,6 +225,7 @@ cd termpilot
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
+termpilot
 ```
 
 For local quality checks:

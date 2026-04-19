@@ -28,7 +28,7 @@ cli.py      → SessionStart / UserPromptSubmit / Stop 分发
 
 ## 配置格式
 
-Hooks 从 `~/.claude/settings.json` 读取。
+Hooks 从 `~/.termpilot/settings.json` 读取。
 
 概念上类似：
 

@@ -1,18 +1,18 @@
-"""CLAUDE.md 文件搜索、加载和格式化。
+"""TERMPILOT.md 文件搜索、加载和格式化。
 
 对应 TS: utils/claudemd.ts (~1500 行)
 
 TS 版支持 @include 指令、frontmatter 条件规则、团队记忆等高级特性。
-Python 简化版保留核心功能：从多个位置搜索 CLAUDE.md 文件，加载内容，
+Python 简化版保留核心功能：从多个位置搜索 TERMPILOT.md 文件，加载内容，
 格式化为 system prompt section。
 
 搜索路径（按优先级从低到高）：
-1. ~/.claude/CLAUDE.md          — 用户全局指令
-2. ~/.claude/rules/*.md         — 用户全局规则文件
-3. 项目根到 CWD 的 CLAUDE.md    — 项目指令（最近的目录优先级高）
-4. 项目根到 CWD 的 .claude/CLAUDE.md
-5. 项目根到 CWD 的 CLAUDE.local.md — 本地私有指令（不提交 git）
-6. 项目根到 CWD 的 .claude/rules/*.md
+1. ~/.termpilot/TERMPILOT.md          — 用户全局指令
+2. ~/.termpilot/rules/*.md         — 用户全局规则文件
+3. 项目根到 CWD 的 TERMPILOT.md       — 项目指令（最近的目录优先级高）
+4. 项目根到 CWD 的 .termpilot/TERMPILOT.md
+5. 项目根到 CWD 的 TERMPILOT.local.md — 本地私有指令（不提交 git）
+6. 项目根到 CWD 的 .termpilot/rules/*.md
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MemoryFileInfo:
-    """一个 CLAUDE.md 文件的信息。"""
+    """一个 TERMPILOT.md 文件的信息。"""
 
     path: str
     content: str
@@ -74,18 +74,18 @@ def _read_rules_dir(rules_dir: Path, file_type: str) -> list[MemoryFileInfo]:
     return results
 
 
-def find_claude_md_files(cwd: str = "") -> list[MemoryFileInfo]:
-    """搜索所有 CLAUDE.md 文件。
+def find_termpilot_md_files(cwd: str = "") -> list[MemoryFileInfo]:
+    """搜索所有 TERMPILOT.md 文件。
 
-    对应 TS getClaudeMds() + getMemoryFiles()。
+    对应 TS `getClaudeMds()` + `getMemoryFiles()`。
 
     搜索顺序（先找到的先加载，后加载的覆盖先加载的）：
-    1. ~/.claude/CLAUDE.md
-    2. ~/.claude/rules/*.md
-    3. 从根到 CWD 每个目录的 CLAUDE.md
-    4. 从根到 CWD 每个目录的 .claude/CLAUDE.md
-    5. 从根到 CWD 每个目录的 CLAUDE.local.md
-    6. 从根到 CWD 每个目录的 .claude/rules/*.md
+    1. ~/.termpilot/TERMPILOT.md
+    2. ~/.termpilot/rules/*.md
+    3. 从根到 CWD 每个目录的 TERMPILOT.md
+    4. 从根到 CWD 每个目录的 .termpilot/TERMPILOT.md
+    5. 从根到 CWD 每个目录的 TERMPILOT.local.md
+    6. 从根到 CWD 每个目录的 .termpilot/rules/*.md
     """
     if not cwd:
         cwd = str(Path.cwd())
@@ -93,64 +93,64 @@ def find_claude_md_files(cwd: str = "") -> list[MemoryFileInfo]:
     home = Path.home()
     files: list[MemoryFileInfo] = []
 
-    # 1. ~/.claude/CLAUDE.md — 用户全局
-    user_claude_md = _read_file(home / ".claude" / "CLAUDE.md")
-    if user_claude_md:
+    # 1. ~/.termpilot/TERMPILOT.md — 用户全局
+    user_termpilot_md = _read_file(home / ".termpilot" / "TERMPILOT.md")
+    if user_termpilot_md:
         files.append(MemoryFileInfo(
-            path=str(home / ".claude" / "CLAUDE.md"),
-            content=user_claude_md,
+            path=str(home / ".termpilot" / "TERMPILOT.md"),
+            content=user_termpilot_md,
             file_type="user",
         ))
 
-    # 2. ~/.claude/rules/*.md — 用户全局规则
-    files.extend(_read_rules_dir(home / ".claude" / "rules", "user"))
+    # 2. ~/.termpilot/rules/*.md — 用户全局规则
+    files.extend(_read_rules_dir(home / ".termpilot" / "rules", "user"))
 
     # 从根到 CWD 的目录链
     chain = _parent_chain(cwd)
 
-    # 3. 从根到 CWD 每个目录的 CLAUDE.md — 项目指令
+    # 3. 从根到 CWD 每个目录的 TERMPILOT.md — 项目指令
     for dir_path in chain:
-        content = _read_file(Path(dir_path) / "CLAUDE.md")
+        content = _read_file(Path(dir_path) / "TERMPILOT.md")
         if content:
             files.append(MemoryFileInfo(
-                path=f"{dir_path}/CLAUDE.md",
+                path=f"{dir_path}/TERMPILOT.md",
                 content=content,
                 file_type="project",
             ))
 
-    # 4. 从根到 CWD 每个目录的 .claude/CLAUDE.md
+    # 4. 从根到 CWD 每个目录的 .termpilot/TERMPILOT.md
     for dir_path in chain:
-        content = _read_file(Path(dir_path) / ".claude" / "CLAUDE.md")
+        content = _read_file(Path(dir_path) / ".termpilot" / "TERMPILOT.md")
         if content:
             files.append(MemoryFileInfo(
-                path=f"{dir_path}/.claude/CLAUDE.md",
+                path=f"{dir_path}/.termpilot/TERMPILOT.md",
                 content=content,
                 file_type="project",
             ))
 
-    # 5. 从根到 CWD 每个目录的 CLAUDE.local.md — 本地私有
+    # 5. 从根到 CWD 每个目录的 TERMPILOT.local.md — 本地私有
     for dir_path in chain:
-        content = _read_file(Path(dir_path) / "CLAUDE.local.md")
+        content = _read_file(Path(dir_path) / "TERMPILOT.local.md")
         if content:
             files.append(MemoryFileInfo(
-                path=f"{dir_path}/CLAUDE.local.md",
+                path=f"{dir_path}/TERMPILOT.local.md",
                 content=content,
                 file_type="local",
             ))
 
-    # 6. 从根到 CWD 每个目录的 .claude/rules/*.md — 项目规则
+    # 6. 从根到 CWD 每个目录的 .termpilot/rules/*.md — 项目规则
     for dir_path in chain:
-        files.extend(_read_rules_dir(Path(dir_path) / ".claude" / "rules", "project"))
+        files.extend(_read_rules_dir(Path(dir_path) / ".termpilot" / "rules", "project"))
 
     return files
 
 
-def load_claude_md(cwd: str = "") -> str | None:
-    """加载所有 CLAUDE.md 内容，格式化为 system prompt section。
+def load_termpilot_md(cwd: str = "") -> str | None:
+    """加载所有 TERMPILOT.md 内容，格式化为 system prompt section。
 
-    对应 TS getClaudeMds() 的格式化部分。
+    对应 TS `getClaudeMds()` 的格式化部分。
 
-    返回 None 表示没有找到任何 CLAUDE.md 文件。
+    返回 None 表示没有找到任何 TERMPILOT.md 文件。
     返回的字符串格式：
     "# Project & User Instructions\n\n"
     "<file_type>path</file_type>\n"
@@ -158,12 +158,12 @@ def load_claude_md(cwd: str = "") -> str | None:
     "</file_type>\n\n"
     ...
     """
-    files = find_claude_md_files(cwd)
+    files = find_termpilot_md_files(cwd)
     if not files:
-        logger.debug("no CLAUDE.md files found (cwd=%s)", cwd)
+        logger.debug("no TERMPILOT.md files found (cwd=%s)", cwd)
         return None
 
-    logger.debug("found %d CLAUDE.md files: %s", len(files),
+    logger.debug("found %d TERMPILOT.md files: %s", len(files),
                  ", ".join(f.file_type + ":" + f.path.split("/")[-1] for f in files))
 
     sections: list[str] = [

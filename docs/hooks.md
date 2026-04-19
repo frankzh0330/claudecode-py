@@ -28,7 +28,7 @@ Current hook events:
 
 ## Config Shape
 
-Hooks are loaded from `~/.claude/settings.json`.
+Hooks are loaded from `~/.termpilot/settings.json`.
 
 Conceptually:
 
