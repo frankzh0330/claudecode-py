@@ -436,10 +436,35 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.styles import Style as PtStyle
+    from prompt_toolkit.key_binding import KeyBindings
 
     slash_completer = SlashCompleter()
     slash_completer.refresh()
     pt_style = PtStyle.from_dict({"prompt": "bold green"})
+
+    def _mode_toolbar():
+        mode = permission_context.mode.value
+        labels = {
+            "default": " Default ",
+            "plan": " Plan Mode (read-only) ",
+            "acceptEdits": " Accept Edits ",
+        }
+        styles = {
+            "default": "bg:#ansidarkgray fg:#ansiwhite",
+            "plan": "bg:#ansiyellow fg:#ansiblack",
+            "acceptEdits": "bg:#ansigreen fg:#ansiblack",
+        }
+        return [(styles.get(mode, ""), labels.get(mode, f" {mode} "))]
+
+    kb = KeyBindings()
+
+    @kb.add("s-tab")
+    def _cycle_mode(event):
+        from termpilot.permissions import cycle_permission_mode
+        nonlocal permission_context
+        next_mode = cycle_permission_mode(permission_context)
+        permission_context.mode = next_mode
+        event.app.invalidate()
 
     history_file = get_config_home() / "prompt_history"
     pt_session = PromptSession(
@@ -449,10 +474,19 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         style=pt_style,
         history=FileHistory(str(history_file)),
         enable_history_search=True,
+        key_bindings=kb,
+        bottom_toolbar=_mode_toolbar,
     )
 
     while True:
         try:
+            # Show mode in prompt prefix if not default
+            if permission_context.mode.value != "default":
+                mode_tags = {"plan": "[plan]", "acceptEdits": "[edits]"}
+                tag = mode_tags.get(permission_context.mode.value, "")
+                pt_session.message = [("class:prompt", f"{tag}> ")]
+            else:
+                pt_session.message = [("class:prompt", "> ")]
             console.print()
             user_input = await pt_session.prompt_async()
 
@@ -566,6 +600,21 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             else:
                 messages.append(create_user_message(effective_input))
             storage.record_user_message(user_input)
+
+            # Plan mode: inject reminder so model self-restricts instead of
+            # attempting writes and getting blocked by the permission system.
+            if permission_context.mode.value == "plan":
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "<system-reminder>"
+                        "You are in plan mode (read-only). Do NOT attempt to write, edit, "
+                        "or modify any files. Only use read-only tools: read_file, glob, grep, "
+                        "bash (read-only only). When ready, call exit_plan_mode with your plan."
+                        "</system-reminder>"
+                    ),
+                })
+
             logger.debug("sending to API: %d messages in context", len(messages))
 
             try:

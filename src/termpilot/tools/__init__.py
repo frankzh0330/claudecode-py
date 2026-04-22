@@ -43,6 +43,8 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
     from termpilot.tools.task import (
         TaskCreateTool, TaskUpdateTool, TaskListTool, TaskGetTool,
     )
+    from termpilot.tools.enter_plan import EnterPlanModeTool
+    from termpilot.tools.exit_plan import ExitPlanModeTool
     from termpilot.tools.notebook_edit import NotebookEditTool
 
     tools.extend([
@@ -52,6 +54,8 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
         TaskUpdateTool(),
         TaskListTool(),
         TaskGetTool(),
+        EnterPlanModeTool(),
+        ExitPlanModeTool(),
         NotebookEditTool(),
     ])
 

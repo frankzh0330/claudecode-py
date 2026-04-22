@@ -150,6 +150,13 @@ class QuietUI:
         self.console.print()
         self.console.print(Panel(body, title=header, border_style="blue" if success else "red"))
 
+    def show_mode_change(self, mode: str) -> None:
+        colors = {"default": "dim", "plan": "yellow bold", "acceptEdits": "green bold"}
+        color = colors.get(mode, "dim")
+        labels = {"default": "Default", "plan": "Plan Mode (read-only)", "acceptEdits": "Accept Edits"}
+        label = labels.get(mode, mode)
+        self.console.print(f"[{color}]▸ {label}[/]")
+
 
 def _status_for_tool(name: str, input_data: dict[str, Any]) -> str:
     if name == "list_dir":
