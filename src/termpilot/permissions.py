@@ -565,7 +565,7 @@ def check_permission(
         logger.debug("→ DENY (deny rule: %s(%s))", deny_rule.tool_name, deny_rule.pattern)
         return PermissionResult(
             behavior=PermissionBehavior.DENY,
-            message=f"被规则拒绝: {deny_rule.tool_name}({deny_rule.pattern})",
+            message=f"被持久化规则拒绝: {deny_rule.tool_name}({deny_rule.pattern})。如需修改，编辑 ~/.termpilot/settings.json 中的 permissions.rules",
         )
 
     # 4. BYPASS 模式 — 跳过所有检查（子代理工具除外）

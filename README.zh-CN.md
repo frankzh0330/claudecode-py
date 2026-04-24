@@ -19,10 +19,13 @@
 - Hook 系统：围绕 prompt 和工具调用的 shell 命令钩子
 - 自动加载 `TERMPILOT.md` 项目级持久化指令
 - 长对话上下文压缩
-- 会话持久化：可恢复的 JSONL 历史记录和自动生成的对话标题
+- 会话持久化：可恢复的 JSONL 历史记录、会话回退、崩溃恢复
+- API 限流和瞬时故障自动重试（指数退避）
 - MCP 集成：动态工具和资源
 - Skills 和 Slash 命令
-- 持久化记忆、撤销快照、Token/费用追踪、大型工具结果存储、附件、子代理
+- 五种内置子代理类型：Explore、Plan、Verification、general-purpose，以及用户自定义代理（从 `~/.termpilot/agents/*.md` 加载）
+- Plan Mode：按 Shift+Tab 在 Default、Accept Edits、Plan 三种模式间切换；Plan 模式下模型为只读，需提交计划供用户审批
+- 持久化记忆、撤销快照、Token/费用追踪、大型工具结果存储、附件
 
 ## 可用工具
 
@@ -35,7 +38,7 @@
 | 执行命令 | `bash` | 执行 shell 命令，支持超时 | ❌ | ✅ |
 | 文件搜索 | `glob` | 使用 glob 模式搜索文件 | ✅ | ❌ |
 | 内容搜索 | `grep` | 使用正则表达式搜索文件内容 | ✅ | ❌ |
-| 子代理 | `agent` | 启动递归子代理，用于探索、规划或实现 | ✅ | ❌ |
+| 子代理 | `agent` | 启动递归子代理：Explore、Plan、Verification、general-purpose 或自定义 | ✅ | ❌ |
 | 用户提问 | `ask_user_question` | 向用户提出一个聚焦的后续问题 | ✅ | ❌ |
 | 任务管理 | `task_create`, `task_update`, `task_list`, `task_get` | 创建和管理当前会话的任务项 | ✅ | ❌ |
 | 规划模式 | `enter_plan_mode`, `exit_plan_mode` | 进入或退出规划模式 | ✅ | ❌ |
@@ -141,9 +144,50 @@ termpilot -s <session-id>
 | `/skills` | 列出可用 skills |
 | `/mcp` | 显示 MCP 服务器状态 |
 | `/undo` | 恢复上一次文件快照 |
+| `/rewind` | 回退对话到历史某个 turn，从该点继续 |
 | `/commit` | AI 生成 git commit |
 | `/init` | 为当前项目生成指令模板 |
 | `/exit`、`/quit` | 退出程序 |
+
+## 子代理
+
+`agent` 工具启动的子代理在独立上下文中运行，拥有自己的 system prompt 和工具集。子代理可以递归调用工具直到任务完成，结果返回给主代理。
+
+| 类型 | 说明 |
+|------|------|
+| `Explore` | 快速只读代理，用于代码库探索、文件发现和代码搜索 |
+| `Plan` | 架构规划代理，用于设计实现方案和分析权衡 |
+| `Verification` | 只读代理，用于检查 diff、运行测试、发现回归 |
+| `general-purpose` | 通用代理，拥有完整工具访问权限，用于复杂多步任务 |
+| 自定义 | 从 `~/.termpilot/agents/*.md` 加载的用户自定义代理 |
+
+### 自定义代理
+
+在 `~/.termpilot/agents/` 中创建 Markdown 文件，包含 YAML frontmatter：
+
+```markdown
+---
+name: code-reviewer
+description: 审查代码质量、安全性和最佳实践
+tools: read_file, glob, grep
+---
+
+你是一个代码审查专家。分析代码并报告发现的问题。
+```
+
+## Plan Mode
+
+按 **Shift+Tab** 在权限模式间循环切换：
+
+| 模式 | 行为 |
+|------|------|
+| Default | 正常操作，需要权限确认 |
+| Accept Edits | 自动批准工作目录内的文件编辑 |
+| Plan | 只读模式 — 仅允许探索和规划工具 |
+
+在 Plan 模式下，模型探索代码库并设计实现方案，然后调用 `exit_plan_mode` 将计划提交给用户审批。审批通过后，模式恢复为之前的设置。
+
+底部工具栏显示当前模式（黄色表示 Plan，绿色表示 Accept Edits，灰色表示 Default）。
 
 ## 项目结构
 

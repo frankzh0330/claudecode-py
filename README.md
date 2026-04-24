@@ -19,10 +19,13 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 - Hook system for shell-command hooks around prompts and tool calls
 - Automatic `TERMPILOT.md` loading for project-level persistent instructions
 - Context compaction for long conversations
-- Session persistence with resumable JSONL history and generated conversation titles
+- Session persistence with resumable JSONL history, session rewind, and crash recovery
+- Automatic retry with exponential backoff for API rate limits and transient failures
 - MCP integration for dynamic tools and resources
 - Skills and slash commands
-- Persistent memory, undo snapshots, token/cost tracking, large tool-result storage, attachments, and sub-agents
+- Five built-in sub-agent types: Explore, Plan, Verification, general-purpose, and user-defined custom agents (loaded from `~/.termpilot/agents/*.md`)
+- Plan Mode: press Shift+Tab to cycle between Default, Accept Edits, and Plan modes; models in Plan mode are read-only and present plans for user approval
+- Persistent memory, undo snapshots, token/cost tracking, large tool-result storage, and attachments
 
 ## Available Tools
 
@@ -35,7 +38,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 | Run command | `bash` | Execute shell commands with timeout support | ❌ | ✅ |
 | File search | `glob` | Search files using glob patterns | ✅ | ❌ |
 | Content search | `grep` | Search file contents with regular expressions | ✅ | ❌ |
-| Sub-agent | `agent` | Launch a recursive agent for exploration, planning, or implementation help | ✅ | ❌ |
+| Sub-agent | `agent` | Launch a recursive sub-agent: Explore, Plan, Verification, general-purpose, or custom | ✅ | ❌ |
 | Ask user | `ask_user_question` | Ask the user a focused follow-up question | ✅ | ❌ |
 | Tasks | `task_create`, `task_update`, `task_list`, `task_get` | Create and manage task items for the current session | ✅ | ❌ |
 | Plan mode | `enter_plan_mode`, `exit_plan_mode` | Switch into or out of planning mode | ✅ | ❌ |
@@ -141,9 +144,50 @@ termpilot -s <session-id>
 | `/skills` | List available skills |
 | `/mcp` | Show MCP server status |
 | `/undo` | Restore the previous file snapshot |
+| `/rewind` | Rewind conversation to a previous turn and continue from there |
 | `/commit` | Draft a commit flow with AI-generated commit message guidance |
 | `/init` | Generate a project instruction seed for the current project |
 | `/exit`, `/quit` | Exit the program |
+
+## Sub-Agents
+
+The `agent` tool launches sub-agents that run in an isolated context with their own system prompt and tool set. Sub-agents can recursively call tools until the task is complete, and their results are returned to the main agent.
+
+| Type | Description |
+|------|-------------|
+| `Explore` | Fast read-only agent for codebase exploration, file discovery, and code searches |
+| `Plan` | Architect agent for designing implementation strategies and exploring trade-offs |
+| `Verification` | Read-only agent for checking diffs, running tests, and identifying regressions |
+| `general-purpose` | General agent for complex multi-step tasks with full tool access |
+| Custom | User-defined agents loaded from `~/.termpilot/agents/*.md` with frontmatter metadata |
+
+### Custom Agents
+
+Create a Markdown file in `~/.termpilot/agents/` with YAML frontmatter:
+
+```markdown
+---
+name: code-reviewer
+description: Reviews code for quality, security, and best practices
+tools: read_file, glob, grep
+---
+
+You are a code review specialist. Analyze the code and report findings.
+```
+
+## Plan Mode
+
+Press **Shift+Tab** to cycle between permission modes:
+
+| Mode | Behavior |
+|------|----------|
+| Default | Normal operation with permission prompts |
+| Accept Edits | Auto-approve file edits within the working directory |
+| Plan | Read-only mode — only exploration and planning tools are allowed |
+
+In Plan mode, the model explores the codebase and designs an implementation plan, then calls `exit_plan_mode` to present the plan for your approval via an interactive dialog. After approval, the mode restores to the previous setting.
+
+A bottom toolbar shows the current mode (yellow for Plan, green for Accept Edits, gray for Default).
 
 ## Project Layout
 

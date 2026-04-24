@@ -80,3 +80,7 @@ This is approximate but sufficient for deciding when to compact.
 
 - older large tool outputs
 - redundant historical detail already represented in summaries
+
+## Session Persistence and Compaction
+
+Compaction operates on the in-memory message list. The session JSONL file (the append-only event log with parentUuid links) is not affected by compaction — it always retains the full history. If the user rewinds via `/rewind`, the original messages are still in the JSONL even though they were compacted in the active context.

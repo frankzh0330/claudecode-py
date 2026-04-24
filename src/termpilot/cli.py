@@ -673,6 +673,57 @@ def _setup_logging() -> None:
     root_logger.info("=== termpilot 启动 (session: %s) ===", session_id)
 
 
+def _check_update() -> None:
+    """检查 PyPI 上是否有新版本，有则提示升级。
+
+    使用缓存的检查结果（~/.termpilot/.update-check），每天最多查一次。
+    """
+    import json
+    import urllib.request
+    from packaging.version import Version
+    from termpilot import __version__
+    from termpilot.config import get_config_home
+
+    cache_file = get_config_home() / ".update-check"
+
+    def _is_outdated(latest: str) -> bool:
+        try:
+            return Version(latest) > Version(__version__)
+        except Exception:
+            return False
+
+    now_day = time.strftime("%Y-%m-%d")
+    if cache_file.exists():
+        try:
+            cached = json.loads(cache_file.read_text(encoding="utf-8"))
+            if cached.get("day") == now_day:
+                latest = cached.get("latest", "")
+                if _is_outdated(latest):
+                    console.print(f"[dim]⚠️  termpilot {__version__} is outdated. Latest: {latest}[/]")
+                    console.print(f"[dim]   Run: pip install -U termpilot[/]\n")
+                return
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    try:
+        req = urllib.request.Request(
+            "https://pypi.org/pypi/termpilot/json",
+            headers={"Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+            latest = data.get("info", {}).get("version", "")
+
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text(json.dumps({"day": now_day, "latest": latest}), encoding="utf-8")
+
+        if _is_outdated(latest):
+            console.print(f"[dim]⚠️  termpilot {__version__} is outdated. Latest: {latest}[/]")
+            console.print(f"[dim]   Run: pip install -U termpilot[/]\n")
+    except Exception:
+        pass
+
+
 @click.group(invoke_without_command=True)
 @click.option(
     "--prompt", "-p",
@@ -701,6 +752,7 @@ def main(ctx: click.Context, prompt: str | None, model: str | None, resume: bool
     if ctx.invoked_subcommand is not None:
         return
     _setup_logging()
+    _check_update()
     ensure_settings_template()
 
     resolved_model = model or get_effective_model(DEFAULT_MODEL)
