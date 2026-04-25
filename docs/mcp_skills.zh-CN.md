@@ -1,6 +1,6 @@
 # MCP、Skills 与 Commands
 
-[English](mcp.md) | [简体中文](mcp.zh-CN.md)
+[English](mcp_skills.md) | [简体中文](mcp_skills.zh-CN.md)
 
 本文档概述 `termpilot` 当前的 MCP、skills 和 slash commands 集成方式。
 

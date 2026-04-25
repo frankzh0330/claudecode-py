@@ -231,7 +231,8 @@ src/termpilot/
 - [docs/hooks.md](docs/hooks.md)：Hook 设计和行为
 - [docs/termpilotmd.md](docs/termpilotmd.md)：项目指令加载
 - [docs/compact.md](docs/compact.md)：压缩策略
-- [docs/mcp.md](docs/mcp.md)：MCP、Skills 和命令
+- [docs/mcp_skills.md](docs/mcp_skills.md)：MCP、Skills 和命令
+- [docs/task-tool.md](docs/task-tool.md)：任务管理、持久化和依赖图
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md)：System Prompt 各 Section
 
 ## 开发状态

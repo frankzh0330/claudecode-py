@@ -231,7 +231,8 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - [docs/hooks.md](docs/hooks.md): hook design and behavior
 - [docs/termpilotmd.md](docs/termpilotmd.md): project instruction loading
 - [docs/compact.md](docs/compact.md): compaction strategy
-- [docs/mcp.md](docs/mcp.md): MCP, skills, and commands
+- [docs/mcp_skills.md](docs/mcp_skills.md): MCP, skills, and commands
+- [docs/task-tool.md](docs/task-tool.md): task management, persistence, and dependency graph
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md): system prompt sections
 
 ## Status

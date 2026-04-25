@@ -47,6 +47,7 @@ src/termpilot/
 | [docs/termpilotmd.md](docs/termpilotmd.md) | TERMPILOT.md 加载系统详解 |
 | [docs/compact.md](docs/compact.md) | 上下文压缩系统详解 |
 | [docs/mcp.md](docs/mcp.md) | MCP/Skills/Commands 详解 |
+| [docs/task-tool.md](docs/task-tool.md) | 任务管理、持久化和依赖图详解 |
 | [docs/system_prompt_sections.md](docs/system_prompt_sections.md) | System Prompt 13 个 section 详解 |
 
 ## 开发状态

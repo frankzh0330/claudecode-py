@@ -134,6 +134,7 @@ Current tool families:
 - Directory summary tool: `list_dir`
 - Core file/shell/search tools
 - Advanced workflow tools: ask-user, agent, task, plan, notebook
+- Task management: `task_create`, `task_update`, `task_list`, `task_get` (see [docs/task-tool.md](docs/task-tool.md))
 - Web tools: `web_fetch`, `web_search`
 - MCP dynamic tools and resource readers
 - Skill expansion tool

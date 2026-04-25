@@ -134,6 +134,7 @@ cli.py
 - 目录摘要工具：`list_dir`
 - 核心文件/命令/搜索工具
 - 高级工作流工具：ask-user、agent、task、plan、notebook
+- 任务管理：`task_create`、`task_update`、`task_list`、`task_get`（详见 [docs/task-tool.zh-CN.md](docs/task-tool.zh-CN.md)）
 - Web 工具：`web_fetch`、`web_search`
 - MCP 动态工具和资源读取工具
 - Skill 展开工具
