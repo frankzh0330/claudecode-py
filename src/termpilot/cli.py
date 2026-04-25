@@ -29,6 +29,7 @@ from termpilot.messages import create_assistant_message, create_user_message
 from termpilot.permissions import (
     PermissionBehavior,
     PermissionContext,
+    PermissionMode,
     PermissionResult,
     build_permission_context,
 )
@@ -454,7 +455,8 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                 f"工具: {', '.join(t.name for t in tools[:6])}{'...' if len(tools) > 6 else ''}\n"
                 f"权限模式: {permission_context.mode.value}\n"
                 f"会话: {storage.session_id[:8] if storage.session_id else 'N/A'}...{mcp_info}\n"
-                f"输入消息开始对话，/help 查看命令，Ctrl+C 退出"
+                f"输入消息开始对话，/help 查看命令，Ctrl+C 退出\n"
+                f"Shift+Tab 切换 Plan Mode（只读规划）"
             ),
             border_style="blue",
         )
@@ -463,20 +465,46 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
     from termpilot.completer import SlashCompleter
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import FileHistory
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
     from prompt_toolkit.styles import Style as PtStyle
 
     slash_completer = SlashCompleter()
     slash_completer.refresh()
-    pt_style = PtStyle.from_dict({"prompt": "bold green"})
+    pt_style = PtStyle.from_dict({
+        "prompt": "bold green",
+        "plan-prompt": "bold #ff8800",
+    })
+
+    # Plan mode 状态（通过闭包在键绑定和循环之间共享）
+    plan_mode_active = False
+
+    plan_bindings = KeyBindings()
+
+    @plan_bindings.add(Keys.BackTab, eager=True)
+    def _toggle_plan_mode(event):
+        nonlocal plan_mode_active
+        plan_mode_active = not plan_mode_active
+        if plan_mode_active:
+            print("[Plan Mode ON — read-only]")
+        else:
+            print("[Plan Mode OFF — full access]")
+        event.app.invalidate()
+
+    def _get_prompt_message():
+        if plan_mode_active:
+            return [("class:plan-prompt", "PLAN> ")]
+        return [("class:prompt", "> ")]
 
     history_file = get_config_home() / "prompt_history"
     pt_session = PromptSession(
-        message=[("class:prompt", "> ")],
+        message=_get_prompt_message,
         completer=slash_completer,
         complete_while_typing=True,
         style=pt_style,
         history=FileHistory(str(history_file)),
         enable_history_search=True,
+        key_bindings=plan_bindings,
     )
 
     while True:
@@ -597,10 +625,22 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             storage.record_user_message(user_input)
             logger.debug("sending to API: %d messages in context", len(messages))
 
+            # Plan mode: 切换为只读权限
+            if plan_mode_active:
+                effective_permission = PermissionContext(
+                    mode=PermissionMode.PLAN,
+                    allow_rules=[],
+                    deny_rules=[],
+                    ask_rules=[],
+                    working_directory=permission_context.working_directory,
+                )
+            else:
+                effective_permission = permission_context
+
             try:
                 full_response = await _stream_response_with_tools(
                     client, model, system_prompt, messages, tools, storage,
-                    permission_context=permission_context,
+                    permission_context=effective_permission,
                     session_id=storage.session_id or "",
                     cost_tracker=cost_tracker,
                     ui=ui,
