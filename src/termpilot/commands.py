@@ -478,6 +478,23 @@ async def _cmd_rewind(args: str, ctx: dict) -> CommandResult:
 
     import questionary
 
+    def _esc_ask(q):
+        from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
+
+        bindings = KeyBindings()
+
+        @bindings.add(Keys.Escape, eager=True)
+        def _cancel(event):
+            event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+        kb = q.application.key_bindings
+        if hasattr(kb, "add"):
+            kb.add(Keys.Escape, eager=True)(_cancel)
+        elif hasattr(kb, "registries"):
+            kb.registries.append(bindings)
+        return q.ask()
+
     choices = [
         questionary.Choice(
             f"#{i + 1}  {t['preview']}",
@@ -490,7 +507,7 @@ async def _cmd_rewind(args: str, ctx: dict) -> CommandResult:
         loop = asyncio.get_event_loop()
         choice = await loop.run_in_executor(
             None,
-            lambda: questionary.select("Rewind to:", choices=choices).ask(),
+            lambda: _esc_ask(questionary.select("Rewind to:", choices=choices)),
         )
     except (KeyboardInterrupt, EOFError):
         choice = None

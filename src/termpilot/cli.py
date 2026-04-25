@@ -43,6 +43,25 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
+def _esc_ask(question) -> Any:
+    """Ask a questionary prompt with ESC to cancel."""
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
+
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.Escape, eager=True)
+    def _cancel(event):
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    kb = question.application.key_bindings
+    if hasattr(kb, "add"):
+        kb.add(Keys.Escape, eager=True)(_cancel)
+    elif hasattr(kb, "registries"):
+        kb.registries.append(bindings)
+    return question.ask()
+
+
 async def _permission_prompt(
         tool_name: str,
         tool_input: dict,
@@ -71,7 +90,7 @@ async def _permission_prompt(
         loop = asyncio.get_event_loop()
         choice = await loop.run_in_executor(
             None,
-            lambda: questionary.select(
+            lambda: _esc_ask(questionary.select(
                 "选择操作",
                 choices=[
                     questionary.Choice("Allow once    (本次允许)", value="1"),
@@ -80,7 +99,7 @@ async def _permission_prompt(
                     questionary.Choice("Always deny   (始终拒绝同类操作)", value="4"),
                 ],
                 use_shortcuts=False,
-            ).ask(),
+            )),
         )
     except (KeyboardInterrupt, EOFError):
         choice = "3"
@@ -327,7 +346,7 @@ def _pick_session(sessions: list[dict]) -> str | None:
 
     try:
         import questionary as _q
-        choice = _q.text("选择会话编号（直接回车取消）:").ask() or ""
+        choice = _esc_ask(_q.text("选择会话编号（直接回车取消）:")) or ""
         if not choice.strip():
             return None
         idx = int(choice.strip()) - 1

@@ -30,7 +30,10 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+
 logger = logging.getLogger(__name__)
+console = Console()
 
 from termpilot.compact import auto_compact_if_needed
 from termpilot.tool_result_storage import process_tool_result
@@ -91,13 +94,21 @@ def create_client() -> tuple[Any, str]:
     settings_path = get_settings_path()
 
     if not api_key or is_placeholder_key(api_key):
-        sys.exit(
-            f"API key not configured.\n"
-            f"Edit {settings_path} and replace the placeholder with your real key.\n"
-            f"Then run termpilot again."
-        )
+        if sys.stdin.isatty():
+            from termpilot.config import run_setup_wizard
+            console.print("[dim]API key not configured. Launching setup wizard…[/]\n")
+            run_setup_wizard()
+            apply_settings_env()
+            provider = get_effective_provider()
+            api_key = get_effective_api_key(provider)
+        if not api_key or is_placeholder_key(api_key):
+            sys.exit(
+                f"API key not configured.\n"
+                f"Run: termpilot setup\n"
+                f"Or edit {settings_path}"
+            )
 
-    if provider in ("anthropic", "zhipu"):
+    if provider == "anthropic":
         try:
             from anthropic import AsyncAnthropic
         except ImportError:
@@ -105,10 +116,7 @@ def create_client() -> tuple[Any, str]:
                 "Anthropic SDK not installed.\n"
                 "Run: pip install anthropic"
             )
-        if provider == "zhipu":
-            base_url = os.environ.get("ZHIPU_ANTHROPIC_BASE_URL") or "https://open.bigmodel.cn/api/anthropic"
-        else:
-            base_url = get_effective_base_url(provider)
+        base_url = get_effective_base_url(provider)
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url

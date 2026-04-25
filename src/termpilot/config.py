@@ -30,6 +30,25 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _esc_ask(question) -> Any:
+    """Ask a questionary prompt with ESC to cancel."""
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.keys import Keys
+
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.Escape, eager=True)
+    def _cancel(event):
+        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
+
+    kb = question.application.key_bindings
+    if hasattr(kb, "add"):
+        kb.add(Keys.Escape, eager=True)(_cancel)
+    elif hasattr(kb, "registries"):
+        kb.registries.append(bindings)
+    return question.ask()
+
+
 _PROVIDER_ALIASES = {
     "anthropic": "anthropic",
     "claude": "anthropic",
@@ -39,8 +58,8 @@ _PROVIDER_ALIASES = {
     "openai-compatible": "openai_compatible",
     "compatible": "openai_compatible",
     "custom": "openai_compatible",
-    "zhipu": "zhipu",
-    "glm": "zhipu",
+    "zhipu": "openai_compatible",
+    "glm": "openai_compatible",
     "deepseek": "openai_compatible",
     "qwen": "openai_compatible",
     "dashscope": "openai_compatible",
@@ -95,7 +114,7 @@ _PROVIDERS: dict[str, dict[str, Any]] = {
     "Zhipu GLM": {
         "provider": "zhipu",
         "env_key": "ZHIPU_API_KEY",
-        "base_url": "https://open.bigmodel.cn/api/anthropic",
+        "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
         "default_model": "glm-5.1",
     },
     "DeepSeek": {
@@ -284,11 +303,11 @@ def run_setup_wizard() -> None:
     # 读取已有配置 → 预填值
     existing_env = get_settings_env()
 
-    choice = questionary.select(
+    choice = _esc_ask(questionary.select(
         "Select your LLM provider:",
         choices=list(_PROVIDERS.keys()),
         default=current_label,
-    ).ask()
+    ))
     if not choice:
         return
 
@@ -299,10 +318,10 @@ def run_setup_wizard() -> None:
     env_key = info.get("env_key")
     if env_key:
         existing_key = existing_env.get(env_key, "")
-        api_key = questionary.text(
+        api_key = _esc_ask(questionary.text(
             f"Enter your {env_key}:",
             default=existing_key,
-        ).ask()
+        ))
         if not api_key:
             return
         env[env_key] = api_key
@@ -313,19 +332,19 @@ def run_setup_wizard() -> None:
         existing_url = existing_env.get(
             info.get("base_url_env_key") or f"{info['provider'].upper()}_BASE_URL", ""
         )
-        base_url = questionary.text(
+        base_url = _esc_ask(questionary.text(
             "Enter base URL (e.g. https://api.example.com/v1):",
             default=existing_url,
-        ).ask() or ""
+        )) or ""
 
     # Prompt for model — 预填已有值或使用 provider 默认
     model_env_key = info.get("model_env_key") or f"{info['provider'].upper()}_MODEL"
     existing_model = existing_env.get(model_env_key, "")
     default_model = existing_model or info.get("default_model", "")
     if not default_model:
-        default_model = questionary.text(
+        default_model = _esc_ask(questionary.text(
             "Enter model name:",
-        ).ask() or ""
+        )) or ""
 
     # Build env dict with base URL and model
     provider_name = info["provider"]
@@ -465,21 +484,21 @@ def run_model_picker() -> dict[str, Any]:
 
     choices.append(questionary.Choice("Custom model…", value="__custom__"))
 
-    choice = questionary.select(
+    choice = _esc_ask(questionary.select(
         f"Select model for {provider_label or raw_provider}:",
         choices=choices,
         default=current_model,
         use_shortcuts=False,
-    ).ask()
+    ))
 
     if not choice:
         return {"changed": False, "model": current_model, "provider": raw_provider}
 
     if choice == "__custom__":
-        custom_model = questionary.text(
+        custom_model = _esc_ask(questionary.text(
             "Enter model name:",
             default=current_model,
-        ).ask()
+        ))
         if not custom_model:
             return {"changed": False, "model": current_model, "provider": raw_provider}
         choice = custom_model
