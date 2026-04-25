@@ -614,6 +614,38 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
             storage.record_assistant_message(full_response)
             logger.debug("response received: %d chars, total messages: %d", len(full_response), len(messages))
 
+            # TaskListWatcher: 空闲时自动取下一个可执行任务
+            from termpilot.tools.task import get_next_available_task, _save_tasks_to_disk
+            next_task = get_next_available_task()
+            if next_task:
+                next_task.owner = "main"
+                next_task.status = "in_progress"
+                _save_tasks_to_disk()
+                console.print(f"\n[dim]Auto-picking task #{next_task.id}: {next_task.subject}[/]")
+                task_prompt = (
+                    f"Continue with task #{next_task.id}: {next_task.subject}\n"
+                    f"{next_task.description}"
+                )
+                messages.append(create_user_message(task_prompt))
+                storage.record_user_message(task_prompt)
+                try:
+                    full_response = await _stream_response_with_tools(
+                        client, model, system_prompt, messages, tools, storage,
+                        permission_context=permission_context,
+                        session_id=storage.session_id or "",
+                        cost_tracker=cost_tracker,
+                        ui=ui,
+                        client_format=client_format,
+                    )
+                except Exception as api_exc:
+                    _print_connection_error(api_exc)
+                else:
+                    messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
+                    storage.record_assistant_message(full_response)
+                console.print()
+                console.rule()
+                continue
+
             # 首轮对话后生成会话标题
             if not title_generated and len(messages) >= 2:
                 from termpilot.session import generate_session_title

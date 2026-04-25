@@ -36,17 +36,36 @@ src/termpilot/
 └── tools/            # 工具（含 list_dir + 核心工具 + Web + MCP 动态 + Skill）
 ```
 
+## 编码规则
+
+- 工具实现 `Tool` 协议（`tools/base.py`），不用深层继承
+- 权限策略只在 `permissions.py` + `api.py`，工具内部不做权限判断
+- Hook 逻辑只在 `hooks.py`，调用方消费结果而非重新实现
+- System prompt 各 section 保持模块化，不写单体大函数
+- 工具调用主循环集中在 `api.py`，不分散到多层
+- 能用本地函数解决的（截断、验证、路径检查）不要加模型调用
+- 持久化走现有子系统：session → `session.py`，undo → `undo.py`，大结果 → `tool_result_storage.py`
+- 参照 TS 版逻辑做精简重写，保留行为和清晰度，不逐行搬运复杂度
+
+## 编码约定
+
+- 模块/函数: `snake_case`，类: `PascalCase`，常量: `UPPER_SNAKE_CASE`，私有: `_` 前缀
+- import 顺序: `from __future__ import annotations` → 标准库 → 第三方 → 项目内
+- 一个概念一个模块，工具在 `tools/`，MCP 在 `mcp/`，文档在 `docs/`
+- match 当前代码风格，不做无关重构
+
 ## 关键文档
 
 | 文档 | 内容 |
 |------|------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 模块分层、依赖方向、数据流 |
-| [docs/golden-rules.md](docs/golden-rules.md) | 机械化的编码规则 |
-| [docs/conventions.md](docs/conventions.md) | 命名、模式、文件组织规范 |
+| [docs/golden-rules.md](docs/golden-rules.md) | 编码规则完整版 |
+| [docs/conventions.md](docs/conventions.md) | 命名和组织约定完整版 |
 | [docs/hooks.md](docs/hooks.md) | Hooks 系统详解 |
 | [docs/termpilotmd.md](docs/termpilotmd.md) | TERMPILOT.md 加载系统详解 |
 | [docs/compact.md](docs/compact.md) | 上下文压缩系统详解 |
-| [docs/mcp.md](docs/mcp.md) | MCP/Skills/Commands 详解 |
+| [docs/mcp_skills.md](docs/mcp_skills.md) | MCP/Skills/Commands 详解 |
+| [docs/task-tool.md](docs/task-tool.md) | 任务管理、持久化和依赖图 |
 | [docs/system_prompt_sections.md](docs/system_prompt_sections.md) | System Prompt 13 个 section 详解 |
 
 ## 开发状态
