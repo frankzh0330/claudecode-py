@@ -1,6 +1,0 @@
-info: system started
-error: disk full
-info: retrying
-error: timeout
-info: recovered
-error: disk full again
