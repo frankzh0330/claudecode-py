@@ -234,8 +234,11 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - [docs/mcp_skills.md](docs/mcp_skills.md): MCP, skills, and commands
 - [docs/task-tool.md](docs/task-tool.md): task management, persistence, and dependency graph
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md): system prompt sections
+- [docs/messages_attachments.md](docs/messages_attachments.md): message formats and file attachments
 
-## Status
+## Development Status
+
+All planned phases are complete.
 
 | Phase | Scope | Status |
 |------|-------|--------|
@@ -248,7 +251,8 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 | 7 | Messages and attachments | ✅ |
 | 8 | Advanced tools: agent, task, ask-user, plan | ✅ |
 | 9 | MCP, skills, and slash commands | ✅ |
-| 10 | Remaining TypeScript alignment work | 🚧 In progress |
+| 10 | Remaining TypeScript alignment work | ✅ |
+| 11 | P0 core capability completion: sub-agent recursion, chain backtracking, undo persistence, permission refinements | ✅ |
 
 ## Reference Implementation
 

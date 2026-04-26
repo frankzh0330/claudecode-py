@@ -1,6 +1,0 @@
-__pycache__/
-*.pyc
-
-eval_results.jsonl
-logs/
-runs/

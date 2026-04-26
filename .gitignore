@@ -32,3 +32,16 @@ sessions/
 # Local-only planning notes
 plan.md
 docs/notion_*.md
+docs/notion*
+notion*
+
+hello.py
+binary_search.py
+utils.py
+
+main.py
+.termpilot/
+.mcp.json
+
+evals/
+*-testing.md
