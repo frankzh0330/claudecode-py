@@ -87,6 +87,7 @@ class PermissionContext:
     """权限上下文。"""
 
     mode: PermissionMode = PermissionMode.DEFAULT
+    pre_plan_mode: PermissionMode | None = None
     allow_rules: list[PermissionRule] = field(default_factory=list)
     deny_rules: list[PermissionRule] = field(default_factory=list)
     ask_rules: list[PermissionRule] = field(default_factory=list)
@@ -579,9 +580,9 @@ def check_permission(
         logger.debug("→ ALLOW (bypass mode)")
         return PermissionResult(behavior=PermissionBehavior.ALLOW)
 
-    # 5. PLAN 模式 — 只允许只读工具
+    # 5. PLAN 模式 — 只允许只读工具 + agent（子代理有自己的权限检查）
     if context.mode == PermissionMode.PLAN:
-        if tool_name in SAFE_TOOLS:
+        if tool_name in SAFE_TOOLS or tool_name == "agent":
             return PermissionResult(behavior=PermissionBehavior.ALLOW)
         logger.debug("→ DENY (plan mode, write blocked)")
         return PermissionResult(
@@ -838,3 +839,17 @@ def build_permission_context(
         working_directory=working_directory,
         disallowed_tools=disallowed_set,
     )
+
+
+def cycle_permission_mode(ctx: PermissionContext) -> PermissionMode:
+    """对应 TS getNextPermissionMode() — Shift+Tab 循环切换权限模式。
+
+    循环顺序: default → acceptEdits → plan → default
+    进入 plan 时保存前一个模式到 pre_plan_mode。
+    """
+    order = [PermissionMode.DEFAULT, PermissionMode.ACCEPT_EDITS, PermissionMode.PLAN]
+    idx = order.index(ctx.mode) if ctx.mode in order else 0
+    next_mode = order[(idx + 1) % len(order)]
+    if next_mode == PermissionMode.PLAN:
+        ctx.pre_plan_mode = ctx.mode
+    return next_mode

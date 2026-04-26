@@ -503,7 +503,10 @@ async def _execute_tools_concurrent(
                 result_text = ""
                 for attempt in range(MAX_TOOL_RETRIES + 1):
                     try:
-                        result_text = await tool.call(**tb["input"])
+                        call_kwargs = dict(tb["input"])
+                        if permission_context and tb["name"] in ("enter_plan_mode", "exit_plan_mode"):
+                            call_kwargs["permission_context"] = permission_context
+                        result_text = await tool.call(**call_kwargs)
                         success = True
                         break
                     except Exception as e:
@@ -565,7 +568,44 @@ async def _execute_tools_concurrent(
         result_text = ""
         for attempt in range(MAX_TOOL_RETRIES + 1):
             try:
-                result_text = await tool.call(**tb["input"])
+                call_kwargs = dict(tb["input"])
+                if permission_context and tb["name"] in ("enter_plan_mode", "exit_plan_mode"):
+                    call_kwargs["permission_context"] = permission_context
+                # exit_plan_mode: show plan and ask user for approval
+                if tb["name"] == "exit_plan_mode":
+                    plan = tb["input"].get("plan", "")
+                    if plan.strip() and on_permission_ask:
+                        from rich.panel import Panel
+                        from rich.text import Text
+                        try:
+                            from rich.console import Console
+                            console_any = Console()
+                            console_any.print()
+                            console_any.print(Panel(
+                                Text(plan[:3000], overflow="ellipsis"),
+                                title="[bold]Plan Mode — Implementation Plan[/]",
+                                border_style="yellow",
+                            ))
+                        except Exception:
+                            pass
+                        try:
+                            loop = asyncio.get_event_loop()
+                            import questionary
+                            choice = await loop.run_in_executor(
+                                None,
+                                lambda: questionary.select(
+                                    "Approve this plan?",
+                                    choices=[
+                                        questionary.Choice("Yes, start implementation", value="yes"),
+                                        questionary.Choice("No, revise the plan", value="no"),
+                                    ],
+                                ).ask(),
+                            )
+                        except (KeyboardInterrupt, EOFError):
+                            choice = "no"
+                        if choice != "yes":
+                            call_kwargs["plan_approved"] = False
+                result_text = await tool.call(**call_kwargs)
                 success = True
                 break
             except Exception as e:

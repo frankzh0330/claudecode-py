@@ -1,12 +1,14 @@
 """Enter Plan Mode 工具。
 
-对应 TS: tools/EnterPlanModeTool/
-请求进入规划模式，模型在此模式下只做只读探索，不做修改。
+对应 TS: tools/EnterPlanModeTool/EnterPlanModeTool.ts
+进入规划模式：保存当前权限模式，切换到 plan 模式（只读）。
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from termpilot.permissions import PermissionMode
 
 
 class EnterPlanModeTool:
@@ -19,9 +21,11 @@ class EnterPlanModeTool:
     @property
     def description(self) -> str:
         return (
-            "Requests permission to enter plan mode for complex tasks requiring "
-            "exploration and design before implementation. In plan mode, you can "
-            "only read files and explore the codebase — no modifications allowed."
+            "Use this tool proactively when you're about to start a non-trivial "
+            "implementation task. Getting user sign-off on your approach before "
+            "writing code prevents wasted effort and ensures alignment. This tool "
+            "transitions you into plan mode where you can explore the codebase and "
+            "design an implementation approach for user approval."
         )
 
     @property
@@ -30,14 +34,22 @@ class EnterPlanModeTool:
 
     @property
     def is_concurrency_safe(self) -> bool:
-        return False
+        return True
 
     async def call(self, **kwargs: Any) -> str:
+        ctx = kwargs.get("permission_context")
+        if ctx:
+            ctx.pre_plan_mode = ctx.mode
+            ctx.mode = PermissionMode.PLAN
+
         return (
-            "Plan mode activated. You now have READ-ONLY access.\n\n"
-            "Guidelines:\n"
-            "- Explore the codebase thoroughly using read_file, glob, grep, bash (read-only)\n"
-            "- Design an implementation approach\n"
-            "- Use exit_plan_mode when you're ready to present your plan\n\n"
-            "Remember: Do NOT create, modify, or delete any files while in plan mode."
+            "Entered plan mode. You now have READ-ONLY access.\n\n"
+            "In plan mode, you should:\n"
+            "1. Thoroughly explore the codebase to understand existing patterns\n"
+            "2. Identify similar features and architectural approaches\n"
+            "3. Consider multiple approaches and their trade-offs\n"
+            "4. Use AskUserQuestion if you need to clarify the approach\n"
+            "5. Design a concrete implementation strategy\n"
+            "6. When ready, call exit_plan_mode to present your plan for approval\n\n"
+            "Remember: DO NOT write or edit any files. This is read-only exploration."
         )

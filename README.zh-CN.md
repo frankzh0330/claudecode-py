@@ -229,7 +229,6 @@ src/termpilot/
 - [docs/golden-rules.md](docs/golden-rules.md)：机械化编码规则
 - [docs/conventions.md](docs/conventions.md)：命名和组织约定
 - [docs/hooks.md](docs/hooks.md)：Hook 设计和行为
-- [docs/termpilotmd.md](docs/termpilotmd.md)：项目指令加载
 - [docs/compact.md](docs/compact.md)：压缩策略
 - [docs/mcp_skills.md](docs/mcp_skills.md)：MCP、Skills 和命令
 - [docs/task-tool.md](docs/task-tool.md)：任务管理、持久化和依赖图

@@ -62,7 +62,6 @@ src/termpilot/
 | [docs/golden-rules.md](docs/golden-rules.md) | 编码规则完整版 |
 | [docs/conventions.md](docs/conventions.md) | 命名和组织约定完整版 |
 | [docs/hooks.md](docs/hooks.md) | Hooks 系统详解 |
-| [docs/termpilotmd.md](docs/termpilotmd.md) | TERMPILOT.md 加载系统详解 |
 | [docs/compact.md](docs/compact.md) | 上下文压缩系统详解 |
 | [docs/mcp_skills.md](docs/mcp_skills.md) | MCP/Skills/Commands 详解 |
 | [docs/task-tool.md](docs/task-tool.md) | 任务管理、持久化和依赖图 |
