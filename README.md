@@ -23,7 +23,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 - Automatic retry with exponential backoff for API rate limits and transient failures
 - MCP integration for dynamic tools and resources
 - Skills and slash commands
-- Five built-in sub-agent types: Explore, Plan, Verification, general-purpose, and user-defined custom agents (loaded from `~/.termpilot/agents/*.md`)
+- Delegation-oriented sub-agents: Explore, Plan, Verification, general-purpose, and user-defined custom agents (loaded from `~/.termpilot/agents/*.md`)
 - Plan Mode: press Shift+Tab to cycle between Default, Accept Edits, and Plan modes; models in Plan mode are read-only and present plans for user approval
 - Persistent memory, undo snapshots, token/cost tracking, large tool-result storage, and attachments
 
@@ -38,9 +38,9 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 | Run command | `bash` | Execute shell commands with timeout support | ❌ | ✅ |
 | File search | `glob` | Search files using glob patterns | ✅ | ❌ |
 | Content search | `grep` | Search file contents with regular expressions | ✅ | ❌ |
-| Sub-agent | `agent` | Launch a recursive sub-agent: Explore, Plan, Verification, general-purpose, or custom | ✅ | ❌ |
+| Sub-agent | `agent` | Delegate work to Explore, Plan, Verification, general-purpose, custom agents, or a batch of up to 3 independent tasks | ✅ | ❌ |
 | Ask user | `ask_user_question` | Ask the user a focused follow-up question | ✅ | ❌ |
-| Tasks | `task_create`, `task_update`, `task_list`, `task_get` | Create and manage task items for the current session | ✅ | ❌ |
+| Tasks | `task_create`, `task_update`, `task_list`, `task_get` | Track complex work as todo-style tasks with progress and dependencies | ✅ | ❌ |
 | Plan mode | `enter_plan_mode`, `exit_plan_mode` | Switch into or out of planning mode | ✅ | ❌ |
 | Notebook edit | `notebook_edit` | Edit Jupyter notebook cells | ❌ | ✅ |
 | Web search | `web_search` | Search the web with optional domain filters | ✅ | ❌ |
@@ -151,15 +151,19 @@ termpilot -s <session-id>
 
 ## Sub-Agents
 
-The `agent` tool launches sub-agents that run in an isolated context with their own system prompt and tool set. Sub-agents can recursively call tools until the task is complete, and their results are returned to the main agent.
+The `agent` tool delegates work to sub-agents that run in an isolated context with their own system prompt and tool set. Sub-agents can call tools until the task is complete, then return a final summary to the main agent.
+
+TermPilot keeps the public tool name `agent`, but its intended semantics are closer to `delegate_task`: use `Plan` for implementation strategy, `Explore` for broad codebase understanding, `Verification` for checks and tests, and `general-purpose` for complex autonomous execution. For multiple independent directions, the model can pass a `tasks` array and delegate up to 3 sub-agents in one call. Batch delegation currently runs serially for predictable UI, permission, and result ordering.
 
 | Type | Description |
 |------|-------------|
-| `Explore` | Fast read-only agent for codebase exploration, file discovery, and code searches |
+| `Explore` | Fast read-only agent for codebase exploration, architecture analysis, file discovery, and code searches |
 | `Plan` | Architect agent for designing implementation strategies and exploring trade-offs |
 | `Verification` | Read-only agent for checking diffs, running tests, and identifying regressions |
 | `general-purpose` | General agent for complex multi-step tasks with full tool access |
 | Custom | User-defined agents loaded from `~/.termpilot/agents/*.md` with frontmatter metadata |
+
+See [Task Delegation and Sub-Agent Routing](docs/task-delegation.md) for the design background and implementation details.
 
 ### Custom Agents
 

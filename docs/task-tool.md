@@ -8,10 +8,33 @@ The task tool system provides persistent task management with dependency graph s
 
 | Tool | Name | Description |
 |------|------|-------------|
-| TaskCreate | `task_create` | Create a new task with subject, description, and optional metadata |
-| TaskUpdate | `task_update` | Update status, subject, description, dependencies, owner, or metadata |
-| TaskList | `task_list` | List tasks with optional status/owner filters, shows dependency info |
+| TaskCreate | `task_create` | Create a todo-style task for complex work |
+| TaskUpdate | `task_update` | Update progress, status, dependencies, owner, or metadata |
+| TaskList | `task_list` | List the current todo plan and regain focus during long work |
 | TaskGet | `task_get` | Get full details of a specific task by ID |
+
+## When to Use Tasks
+
+The task tools are designed for work that is too large to keep only in the model's short-term attention. The model is guided to create tasks before starting:
+
+- Requests with three or more meaningful steps.
+- Multi-file implementation, refactor, or bug-fix work.
+- Requests with multiple independent goals.
+- Long-running investigations.
+- Changes that need testing or verification before completion.
+
+For simple one-shot edits or direct file lookups, the model should usually use the file/search tools directly instead of creating tasks.
+
+## Progress Discipline
+
+The intended task flow is:
+
+1. Create a small todo list with `task_create`.
+2. Mark exactly one task as `in_progress` with `task_update`.
+3. Complete that task before starting the next one.
+4. Use `task_list` to recover focus when the session gets long or after context shifts.
+
+This keeps both the model and the user aligned on the current stage of the work.
 
 ## Data Model
 

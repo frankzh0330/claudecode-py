@@ -256,10 +256,20 @@ def get_session_guidance_section(enabled_tools: set[str] | None = None) -> str |
     # Agent 工具使用说明
     if "agent" in enabled_tools:
         items.append(
-            "For planning intent, use Agent with subagent_type=Plan. Planning intent "
-            "includes requests to plan, design, propose an approach, or add a feature "
-            "with an implementation strategy. This takes priority over exploration "
-            "guidance; the Plan agent can inspect the codebase before producing the plan."
+            "Use Agent as delegate_task for work that benefits from an isolated subagent. "
+            "Subagents return final summaries only, so delegate broad side investigations "
+            "instead of filling the main context with repeated searches."
+        )
+        items.append(
+            "If the user asks to plan, design, propose an approach, or explain how to "
+            "implement something, first delegate to Agent with subagent_type=Plan. "
+            "Planning intent takes priority over exploration intent; the Plan agent can "
+            "inspect the codebase before producing the plan."
+        )
+        items.append(
+            "If the user asks to read, understand, analyze a whole project, identify "
+            "architecture, or find design patterns, delegate to Agent with "
+            "subagent_type=Explore."
         )
         items.append(
             "For simple, directed codebase searches (e.g. for a specific "
@@ -267,7 +277,8 @@ def get_session_guidance_section(enabled_tools: set[str] | None = None) -> str |
         )
         items.append(
             "For broader pure codebase exploration or research that'll take more than "
-            "3 queries, use Agent with subagent_type=Explore."
+            "3 queries, use Agent with subagent_type=Explore instead of continuing to "
+            "Glob/Grep from the main agent."
         )
         items.append(
             "When you are searching for a keyword or file and are not confident that you "
@@ -275,8 +286,24 @@ def get_session_guidance_section(enabled_tools: set[str] | None = None) -> str |
             "subagent_type=Explore to perform the search for you."
         )
         items.append(
-            "For verification after non-trivial implementation work, use Agent with "
-            "subagent_type=Verification."
+            "If the user asks to check correctness, review changes, run tests, or verify "
+            "recent work, delegate to Agent with subagent_type=Verification."
+        )
+        items.append(
+            "If there are multiple independent directions to inspect, prefer Agent with "
+            "the tasks array to delegate up to 3 subagents in one call."
+        )
+
+    if {"task_create", "task_update", "task_list"} & enabled_tools:
+        items.append(
+            "For implementation, refactor, or bug-fix requests involving 3+ steps, "
+            "multiple files, multiple goals, or required testing, create a task list "
+            "before making changes."
+        )
+        items.append(
+            "Use task_update to keep exactly one task in_progress at a time, mark each "
+            "stage completed when finished, and use task_list to regain focus during "
+            "long work."
         )
 
     # AskUserQuestion 工具

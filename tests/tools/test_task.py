@@ -4,18 +4,26 @@ import pytest
 
 from termpilot.tools.task import (
     TaskCreateTool, TaskUpdateTool, TaskListTool, TaskGetTool,
-    _tasks,
+    _get_tasks, _reset_tasks,
 )
+import termpilot.tools.task as task_module
 
 
 @pytest.fixture(autouse=True)
-def clean():
-    _tasks.clear()
+def clean(monkeypatch, tmp_path):
+    monkeypatch.setattr(task_module, "_tasks_file", lambda: tmp_path / "tasks.json")
+    _reset_tasks()
     yield
-    _tasks.clear()
+    _reset_tasks()
 
 
 class TestTaskCreate:
+    def test_description_guides_todo_style_use(self):
+        description = TaskCreateTool().description
+        assert "3+ steps" in description
+        assert "multi-file" in description
+        assert "tested/verified" in description
+
     @pytest.mark.asyncio
     async def test_create(self):
         tool = TaskCreateTool()
@@ -24,7 +32,7 @@ class TestTaskCreate:
             description="A test task description",
         )
         assert "created" in result.lower() or "task" in result.lower()
-        assert len(_tasks) == 1
+        assert len(_get_tasks()) == 1
 
     @pytest.mark.asyncio
     async def test_create_with_active_form(self):
@@ -38,13 +46,19 @@ class TestTaskCreate:
 
 
 class TestTaskUpdate:
+    def test_description_guides_single_in_progress_task(self):
+        description = TaskUpdateTool().description
+        assert "one task" in description
+        assert "in_progress" in description
+        assert "completed" in description
+
     @pytest.mark.asyncio
     async def test_update_status(self):
         # 先创建
         create_tool = TaskCreateTool()
-        create_result = await create_tool.call(subject="T1", description="D1")
+        await create_tool.call(subject="T1", description="D1")
         # 提取 task id
-        task_id = list(_tasks.keys())[0]
+        task_id = list(_get_tasks().keys())[0]
 
         tool = TaskUpdateTool()
         result = await tool.call(taskId=task_id, status="in_progress")
@@ -58,6 +72,11 @@ class TestTaskUpdate:
 
 
 class TestTaskList:
+    def test_description_guides_focus_recovery(self):
+        description = TaskListTool().description
+        assert "current todo plan" in description
+        assert "regain focus" in description
+
     @pytest.mark.asyncio
     async def test_list_empty(self):
         tool = TaskListTool()
@@ -79,7 +98,7 @@ class TestTaskGet:
     @pytest.mark.asyncio
     async def test_get(self):
         await TaskCreateTool().call(subject="GetTest", description="desc")
-        task_id = list(_tasks.keys())[0]
+        task_id = list(_get_tasks().keys())[0]
 
         tool = TaskGetTool()
         result = await tool.call(taskId=task_id)

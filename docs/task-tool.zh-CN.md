@@ -8,10 +8,33 @@
 
 | 工具 | 名称 | 说明 |
 |------|------|------|
-| TaskCreate | `task_create` | 创建新任务，支持标题、描述和自定义元数据 |
-| TaskUpdate | `task_update` | 更新状态、标题、描述、依赖关系、owner 或元数据 |
-| TaskList | `task_list` | 列出任务，支持按状态/owner 过滤，显示依赖信息 |
+| TaskCreate | `task_create` | 创建 todo 风格任务，用于复杂工作追踪 |
+| TaskUpdate | `task_update` | 更新进度、状态、依赖关系、owner 或元数据 |
+| TaskList | `task_list` | 查看当前 todo 计划，在长任务中恢复注意力 |
 | TaskGet | `task_get` | 按 ID 获取单个任务完整详情 |
+
+## 什么时候使用任务
+
+任务工具适合那些不应该只依赖模型短期注意力维护的工作。模型会被引导在以下场景开始前创建任务：
+
+- 包含三个或更多实质步骤的请求。
+- 多文件实现、重构或 bug 修复。
+- 用户给出多个独立目标。
+- 长时间代码探索或排查。
+- 完成前需要测试或验证的修改。
+
+对于简单的一次性编辑或明确文件查找，模型通常应该直接使用文件/搜索工具，而不是创建任务。
+
+## 进度纪律
+
+推荐的任务流程是：
+
+1. 使用 `task_create` 创建小型 todo 列表。
+2. 使用 `task_update` 将且仅将一个任务标记为 `in_progress`。
+3. 完成当前任务后先标记为 `completed`，再开始下一个任务。
+4. 在长会话或上下文切换后，使用 `task_list` 恢复注意力。
+
+这样可以让模型和用户都清楚当前工作处于哪个阶段。
 
 ## 数据模型
 
@@ -104,3 +127,4 @@ Python 版本对应 TS 版以下模块：
 - `tools/TaskCreateTool/` + `TaskUpdateTool/` + `TaskListTool/` + `TaskGetTool/`
 - `hooks/useTaskListWatcher.ts`（自动取任务逻辑）
 - `utils/tasks.ts`（持久化 + 依赖图）
+

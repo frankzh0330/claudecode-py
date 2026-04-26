@@ -105,7 +105,8 @@ System prompt 由 13 个 section 按顺序拼接而成。Section 1–7 为静态
 **函数：** `get_session_guidance_section(enabled_tools)` · **源码：** `context.py:246-313`
 
 根据已启用的工具条件性生成：
-- 若启用 `agent` → 子代理委派说明；何时用 Explore vs 直接 Glob/Grep
+- 若启用 `agent` → delegate-task 风格的子代理委派说明；何时用 Plan、Explore、Verification、直接 Glob/Grep，以及批量 `agent.tasks`
+- 若启用 `task_create` / `task_update` / `task_list` → 对 3+ 步骤、多文件或重验证工作创建 todo 风格任务列表；同一时间仅保持一个任务为 `in_progress`
 - 若启用 `ask_user_question` → 用它澄清被拒绝的工具调用和收集偏好
 - Shell 命令建议：使用 `! <command>` 前缀执行交互式命令
 - 若启用 `skill` → 说明 `/<skill-name>` 简写和 Skill 工具用法

@@ -23,7 +23,7 @@
 - API 限流和瞬时故障自动重试（指数退避）
 - MCP 集成：动态工具和资源
 - Skills 和 Slash 命令
-- 五种内置子代理类型：Explore、Plan、Verification、general-purpose，以及用户自定义代理（从 `~/.termpilot/agents/*.md` 加载）
+- 面向任务委派的子代理：Explore、Plan、Verification、general-purpose，以及用户自定义代理（从 `~/.termpilot/agents/*.md` 加载）
 - Plan Mode：按 Shift+Tab 在 Default、Accept Edits、Plan 三种模式间切换；Plan 模式下模型为只读，需提交计划供用户审批
 - 持久化记忆、撤销快照、Token/费用追踪、大型工具结果存储、附件
 
@@ -38,9 +38,9 @@
 | 执行命令 | `bash` | 执行 shell 命令，支持超时 | ❌ | ✅ |
 | 文件搜索 | `glob` | 使用 glob 模式搜索文件 | ✅ | ❌ |
 | 内容搜索 | `grep` | 使用正则表达式搜索文件内容 | ✅ | ❌ |
-| 子代理 | `agent` | 启动递归子代理：Explore、Plan、Verification、general-purpose 或自定义 | ✅ | ❌ |
+| 子代理 | `agent` | 将任务委派给 Explore、Plan、Verification、general-purpose、自定义代理，或一次委派最多 3 个独立任务 | ✅ | ❌ |
 | 用户提问 | `ask_user_question` | 向用户提出一个聚焦的后续问题 | ✅ | ❌ |
-| 任务管理 | `task_create`, `task_update`, `task_list`, `task_get` | 创建和管理当前会话的任务项 | ✅ | ❌ |
+| 任务管理 | `task_create`, `task_update`, `task_list`, `task_get` | 用 todo 风格任务追踪复杂工作的进度和依赖关系 | ✅ | ❌ |
 | 规划模式 | `enter_plan_mode`, `exit_plan_mode` | 进入或退出规划模式 | ✅ | ❌ |
 | Notebook 编辑 | `notebook_edit` | 编辑 Jupyter notebook 单元格 | ❌ | ✅ |
 | Web 搜索 | `web_search` | 搜索网页，支持域名过滤 | ✅ | ❌ |
@@ -151,15 +151,19 @@ termpilot -s <session-id>
 
 ## 子代理
 
-`agent` 工具启动的子代理在独立上下文中运行，拥有自己的 system prompt 和工具集。子代理可以递归调用工具直到任务完成，结果返回给主代理。
+`agent` 工具将工作委派给在独立上下文中运行的子代理。每个子代理拥有自己的 system prompt 和工具集，可以调用工具直到任务完成，然后把最终总结返回给主代理。
+
+TermPilot 保留公开工具名 `agent`，但语义更接近 `delegate_task`：用 `Plan` 处理实现方案，用 `Explore` 处理大范围代码理解，用 `Verification` 处理检查和测试，用 `general-purpose` 处理复杂自主执行。如果存在多个独立方向，模型可以传入 `tasks` 数组，一次委派最多 3 个子任务。当前批量委派是串行执行，以保持 UI、权限和结果顺序可预测。
 
 | 类型 | 说明 |
 |------|------|
-| `Explore` | 快速只读代理，用于代码库探索、文件发现和代码搜索 |
+| `Explore` | 快速只读代理，用于代码库探索、架构分析、文件发现和代码搜索 |
 | `Plan` | 架构规划代理，用于设计实现方案和分析权衡 |
 | `Verification` | 只读代理，用于检查 diff、运行测试、发现回归 |
 | `general-purpose` | 通用代理，拥有完整工具访问权限，用于复杂多步任务 |
 | 自定义 | 从 `~/.termpilot/agents/*.md` 加载的用户自定义代理 |
+
+设计背景和实现细节见 [任务委派与子代理路由](docs/task-delegation.zh-CN.md)。
 
 ### 自定义代理
 

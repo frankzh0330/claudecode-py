@@ -104,6 +104,17 @@ class TestSessionGuidance:
         result = get_session_guidance_section({"agent"})
         assert result is not None
         assert "Agent" in result
+        assert "subagent_type=Plan" in result
+        assert "subagent_type=Explore" in result
+        assert "subagent_type=Verification" in result
+        assert "tasks array" in result
+
+    def test_with_task_tools(self):
+        from termpilot.context import get_session_guidance_section
+        result = get_session_guidance_section({"task_create", "task_update", "task_list"})
+        assert result is not None
+        assert "create a task list" in result
+        assert "one task in_progress" in result
 
     def test_with_ask_user(self):
         from termpilot.context import get_session_guidance_section

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass
@@ -131,8 +132,11 @@ class QuietUI:
         status_text = "completed" if success else "failed"
         display_name = name
         if name == "agent":
-            subagent = input_data.get("subagent_type", "agent")
-            display_name = subagent
+            if _has_delegated_tasks(input_data):
+                display_name = "Delegation"
+            else:
+                subagent = input_data.get("subagent_type", "agent")
+                display_name = subagent
         header = Text()
         header.append(f"{entry.index}. {display_name}", style="bold cyan")
         header.append(f"  {status_text}", style="green" if success else "red")
@@ -166,6 +170,9 @@ def _status_for_tool(name: str, input_data: dict[str, Any]) -> str:
     if name == "read_file":
         return "Reading key files…"
     if name == "agent":
+        tasks = input_data.get("tasks")
+        if isinstance(tasks, list) and tasks:
+            return f"Running {min(len(tasks), 3)} delegated agents…"
         subagent = input_data.get("subagent_type", "")
         desc = input_data.get("description", "")
         if desc:
@@ -198,6 +205,9 @@ def _tool_summary(name: str, input_data: dict[str, Any], result: str) -> str:
     if name == "edit_file":
         return f"Edited `{input_data.get('file_path', '')}`"
     if name == "agent":
+        tasks = input_data.get("tasks")
+        if isinstance(tasks, list) and tasks:
+            return f"Delegated {len(tasks)} subagents"
         subagent = input_data.get("subagent_type", "agent")
         desc = input_data.get("description", "")
         prompt_text = input_data.get("prompt", "")
@@ -222,6 +232,9 @@ def _preview_lines(name: str, result: str, success: bool) -> list[str]:
         return lines[:6]
 
     if name == "agent":
+        delegated = _delegated_task_preview(result)
+        if delegated:
+            return delegated
         return lines[:8]
 
     if name == "bash":
@@ -230,6 +243,39 @@ def _preview_lines(name: str, result: str, success: bool) -> list[str]:
         return lines[:5]
 
     return lines[:5]
+
+
+def _has_delegated_tasks(input_data: dict[str, Any]) -> bool:
+    tasks = input_data.get("tasks")
+    return isinstance(tasks, list) and bool(tasks)
+
+
+def _delegated_task_preview(result: str) -> list[str]:
+    try:
+        data = json.loads(result)
+    except json.JSONDecodeError:
+        return []
+
+    tasks = data.get("delegated_tasks")
+    if not isinstance(tasks, list):
+        return []
+
+    preview: list[str] = []
+    for item in tasks[:6]:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index", "?")
+        subagent = item.get("subagent_type", "agent")
+        desc = item.get("description") or item.get("error") or "delegated task"
+        status = "completed" if item.get("success") else "failed"
+        preview.append(f"{index}. {subagent} - {_compact_text(str(desc), limit=56)} ({status})")
+
+    summary = data.get("summary")
+    if isinstance(summary, dict):
+        preview.append(
+            f"Summary: {summary.get('succeeded', 0)}/{summary.get('total', len(tasks))} succeeded"
+        )
+    return preview
 
 
 def _summarize_listing(lines: list[str]) -> str:
