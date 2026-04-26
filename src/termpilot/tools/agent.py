@@ -12,12 +12,15 @@ LLM 调工具 → 拿结果 → 再调工具 → 循环，直到任务完成。
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from termpilot.config import get_config_home
 
 logger = logging.getLogger(__name__)
+
+MAX_BATCH_TASKS = 3
 
 # 内置代理类型
 BUILTIN_AGENTS = {
@@ -29,6 +32,7 @@ BUILTIN_AGENTS = {
             "You are STRICTLY PROHIBITED from creating, modifying, or deleting any files.\n"
             "Your role is EXCLUSIVELY to search and analyze existing code.\n\n"
             "Guidelines:\n"
+            "- Use list_dir for directory summaries before broad exploration\n"
             "- Use glob for broad file pattern matching\n"
             "- Use grep for searching file contents with regex\n"
             "- Use read_file when you know the specific file path\n"
@@ -36,7 +40,7 @@ BUILTIN_AGENTS = {
             "- Be thorough: search with multiple patterns if needed\n"
             "- Report your findings concisely"
         ),
-        "tools": ["read_file", "glob", "grep", "bash"],
+        "tools": ["list_dir", "read_file", "glob", "grep", "bash"],
     },
     "Plan": {
         "description": "Software architect agent for designing implementation plans. Use this whenever the user asks to plan, design, or propose an implementation strategy, even if the plan requires exploring the codebase first. Returns step-by-step plans, identifies critical files, and considers architectural trade-offs.",
@@ -52,7 +56,7 @@ BUILTIN_AGENTS = {
             "5. Consider architectural trade-offs\n\n"
             "Output a clear, step-by-step plan with file paths and specific changes."
         ),
-        "tools": ["read_file", "glob", "grep", "bash"],
+        "tools": ["list_dir", "read_file", "glob", "grep", "bash"],
     },
     "Verification": {
         "description": "Read-only verification agent for checking whether changes work as intended. Use after implementation work to inspect diffs, run tests, and identify regressions or missing coverage.",
@@ -68,7 +72,7 @@ BUILTIN_AGENTS = {
             "4. Report failures, risks, and missing coverage clearly\n\n"
             "Output concise findings first, followed by commands/checks performed."
         ),
-        "tools": ["read_file", "glob", "grep", "bash"],
+        "tools": ["list_dir", "read_file", "glob", "grep", "bash"],
     },
     "general-purpose": {
         "description": "General-purpose agent for complex, multi-step tasks that require autonomy.",
@@ -142,26 +146,36 @@ class AgentTool:
         agent_list = "\n".join(agent_lines)
 
         return (
-            "Launch a new agent to handle complex, multi-step tasks autonomously.\n\n"
-            "The agent tool launches specialized agents that autonomously handle complex tasks. "
-            "Each agent type has specific capabilities and tools available to it.\n\n"
+            "Delegate work to a specialized subagent. Think of this as delegate_task: "
+            "spawn an isolated agent for exploration, planning, verification, or a bounded "
+            "multi-step task, then return only that subagent's final summary.\n\n"
+            "Subagents run in their own context with their own tool set. Their intermediate "
+            "tool calls are not added to your main context, so delegation is useful when a "
+            "side investigation would otherwise fill the main conversation.\n\n"
             f"Available agent types and the tools they have access to:\n{agent_list}\n\n"
-            "When using this tool, specify a subagent_type parameter to select which agent type to use. "
-            "If omitted, the general-purpose agent is used.\n\n"
+            "For one task, specify subagent_type, description, and prompt. If subagent_type is "
+            "omitted, general-purpose is used. For multiple independent directions, pass a "
+            "tasks array with up to 3 delegated tasks; batch tasks run serially and each item "
+            "returns its own success/result entry.\n\n"
             "Agent routing rules:\n"
             "- Planning intent wins over exploration intent. If the user asks to plan, design, "
             "propose an approach, or add a feature with a plan, use subagent_type=Plan even "
             "when the agent must inspect the codebase first.\n"
-            "- Use subagent_type=Explore only for pure discovery or analysis requests where "
-            "the user is not asking for an implementation plan.\n"
+            "- Use subagent_type=Explore for pure discovery or analysis requests such as "
+            "understanding a repository, architecture, design patterns, command systems, "
+            "or broad file relationships.\n"
             "- Use subagent_type=Verification only for checking completed work, tests, diffs, "
-            "or regressions.\n\n"
+            "or regressions.\n"
+            "- Use general-purpose for complex multi-step execution that is not just planning, "
+            "exploration, or verification.\n"
+            "- Use custom agents from ~/.termpilot/agents/*.md when their descriptions match "
+            "the task.\n\n"
             "When NOT to use this tool:\n"
             "- If you want to read a specific file path, use read_file instead\n"
             "- If you are searching for a specific class/function like 'class Foo', "
             "use grep instead\n"
             "- If you are searching within a specific file, use read_file instead\n"
-            "- Other tasks not related to the agent descriptions above\n\n"
+            "- If the task can be completed with one or two direct tool calls, do it yourself\n\n"
             "Usage notes:\n"
             "- Always include a short description (3-5 words) summarizing what the agent will do\n"
             "- The agent runs in an isolated context and returns results when done. "
@@ -185,12 +199,31 @@ class AgentTool:
     def input_schema(self) -> dict[str, Any]:
         all_agents = _get_all_agents()
         agent_types = list(all_agents.keys())
+        task_item_schema = {
+            "type": "object",
+            "properties": {
+                "subagent_type": {
+                    "type": "string",
+                    "description": f"Type of subagent to delegate to: {', '.join(agent_types)}",
+                    "enum": agent_types,
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Short description of this delegated task (3-7 words).",
+                },
+                "prompt": {
+                    "type": "string",
+                    "description": "Detailed standalone task brief for this subagent.",
+                },
+            },
+            "required": ["prompt"],
+        }
         return {
             "type": "object",
             "properties": {
                 "subagent_type": {
                     "type": "string",
-                    "description": f"Type of agent: {', '.join(agent_types)}",
+                    "description": f"Type of subagent for a single delegated task: {', '.join(agent_types)}",
                     "enum": agent_types,
                 },
                 "description": {
@@ -201,8 +234,18 @@ class AgentTool:
                     "type": "string",
                     "description": "Detailed task description for the agent.",
                 },
+                "tasks": {
+                    "type": "array",
+                    "description": (
+                        "Optional batch of independent delegated tasks. Use this when there are "
+                        "multiple separate exploration, planning, or verification directions. "
+                        f"Maximum {MAX_BATCH_TASKS}; when present, top-level subagent_type/"
+                        "description/prompt are ignored."
+                    ),
+                    "items": task_item_schema,
+                    "maxItems": MAX_BATCH_TASKS,
+                },
             },
-            "required": ["subagent_type", "prompt"],
         }
 
     @property
@@ -211,6 +254,10 @@ class AgentTool:
 
     async def call(self, **kwargs: Any) -> str:
         """执行子代理任务。"""
+        tasks = kwargs.get("tasks")
+        if isinstance(tasks, list) and tasks:
+            return await self._run_batch(tasks)
+
         subagent_type = kwargs.get("subagent_type", "general-purpose")
         prompt = kwargs.get("prompt", "")
 
@@ -226,6 +273,65 @@ class AgentTool:
             return result
         except Exception as e:
             return f"Agent error: {e}"
+
+    async def _run_batch(self, tasks: list[Any]) -> str:
+        """串行执行一批委派任务并汇总结果。"""
+        if len(tasks) > MAX_BATCH_TASKS:
+            return f"Error: agent.tasks supports at most {MAX_BATCH_TASKS} delegated tasks."
+
+        all_agents = _get_all_agents()
+        results: list[dict[str, Any]] = []
+
+        for index, item in enumerate(tasks, start=1):
+            if not isinstance(item, dict):
+                results.append({
+                    "index": index,
+                    "success": False,
+                    "error": "Task item must be an object.",
+                })
+                continue
+
+            subagent_type = item.get("subagent_type") or "general-purpose"
+            description = item.get("description", "")
+            prompt = item.get("prompt", "")
+
+            entry: dict[str, Any] = {
+                "index": index,
+                "subagent_type": subagent_type,
+                "description": description,
+            }
+
+            if not prompt:
+                entry.update({"success": False, "error": "Agent prompt is required."})
+                results.append(entry)
+                continue
+
+            agent_config = all_agents.get(subagent_type)
+            if not agent_config:
+                entry.update({"success": False, "error": f"Unknown agent type '{subagent_type}'"})
+                results.append(entry)
+                continue
+
+            try:
+                result = await self._run_agent(subagent_type, agent_config, prompt)
+                entry.update({
+                    "success": not result.startswith("Agent API error:"),
+                    "result": result,
+                })
+            except Exception as e:
+                entry.update({"success": False, "error": str(e)})
+            results.append(entry)
+
+        failed = sum(1 for item in results if not item.get("success"))
+        payload = {
+            "delegated_tasks": results,
+            "summary": {
+                "total": len(results),
+                "succeeded": len(results) - failed,
+                "failed": failed,
+            },
+        }
+        return json.dumps(payload, ensure_ascii=False, indent=2)
 
     async def _run_agent(
             self,

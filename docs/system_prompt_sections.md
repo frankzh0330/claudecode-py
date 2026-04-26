@@ -105,7 +105,8 @@ Output optimization (`# Output efficiency`):
 **Function:** `get_session_guidance_section(enabled_tools)` · **Source:** `context.py:246-313`
 
 Conditionally generated based on enabled tools:
-- If `agent` tool enabled → instructions for sub-agent delegation; when to use Explore vs direct Glob/Grep
+- If `agent` tool enabled → delegate-task guidance; when to use Plan, Explore, Verification, direct Glob/Grep, and batch `agent.tasks`
+- If `task_create` / `task_update` / `task_list` enabled → create todo-style task lists for 3+ step, multi-file, or verification-heavy work; keep exactly one task `in_progress`
 - If `ask_user_question` tool enabled → use it to clarify denied tool calls and gather preferences
 - Shell command suggestion: use `! <command>` prefix for interactive commands
 - If `skill` tool enabled → explain `/<skill-name>` shorthand and Skill tool usage

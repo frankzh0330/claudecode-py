@@ -157,7 +157,11 @@ class TaskCreateTool:
 
     @property
     def description(self) -> str:
-        return "Create a structured task for tracking progress on multi-step work."
+        return (
+            "Create a todo-style task for tracking complex work. Use before starting "
+            "requests with 3+ steps, multi-file changes, multiple user goals, long-running "
+            "investigation, or implementation that must be tested/verified."
+        )
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -166,15 +170,15 @@ class TaskCreateTool:
             "properties": {
                 "subject": {
                     "type": "string",
-                    "description": "A brief title for the task (imperative form, e.g. 'Fix authentication bug').",
+                    "description": "Brief actionable title (imperative form, e.g. 'Fix authentication bug').",
                 },
                 "description": {
                     "type": "string",
-                    "description": "Detailed description of what needs to be done.",
+                    "description": "Concrete outcome and scope for this task.",
                 },
                 "activeForm": {
                     "type": "string",
-                    "description": "Present continuous form shown when task is in_progress (e.g. 'Running tests').",
+                    "description": "Present-continuous label shown while in_progress (e.g. 'Running tests').",
                 },
                 "metadata": {
                     "type": "object",
@@ -221,7 +225,11 @@ class TaskUpdateTool:
 
     @property
     def description(self) -> str:
-        return "Update a task's status, subject, description, dependencies, or owner."
+        return (
+            "Update task progress, details, dependencies, or owner. Keep only one task "
+            "in_progress at a time; when a stage is finished, mark it completed before "
+            "starting the next one."
+        )
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -234,7 +242,10 @@ class TaskUpdateTool:
                 },
                 "status": {
                     "type": "string",
-                    "description": "New status: 'pending', 'in_progress', 'completed', or 'deleted'.",
+                    "description": (
+                        "New status. Use in_progress for the active task only; use completed "
+                        "immediately after finishing a stage."
+                    ),
                     "enum": ["pending", "in_progress", "completed", "deleted"],
                 },
                 "subject": {
@@ -352,7 +363,10 @@ class TaskListTool:
 
     @property
     def description(self) -> str:
-        return "List all tasks with their current status. Optionally filter by status or owner."
+        return (
+            "List the current todo plan and task statuses. Use during long work to regain "
+            "focus, resume after context shifts, or choose the next pending task."
+        )
 
     @property
     def input_schema(self) -> dict[str, Any]:
