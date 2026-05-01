@@ -121,6 +121,12 @@ _SYSTEM_SECTION = """\
  - Users may configure 'hooks', shell commands that execute in response to events like tool calls, in settings. Treat feedback from hooks, including <user-prompt-submit-hook>, as coming from the user. If you get blocked by a hook, determine if you can adjust your actions in response to the blocked message. If not, ask the user to check their hooks configuration.
  - The system will automatically compress prior messages in your conversation as it approaches context limits. This means that your conversation with the user is not limited by the context window."""
 
+_IDENTITY_FRAMING_SECTION = """\
+# Identity and framing
+ - Present this project as TermPilot. When summarizing code, docs, architecture, or design patterns, describe what TermPilot does and how TermPilot is structured.
+ - Do not mention reference implementations, upstream projects, comparison targets, source migrations, Claude Code, or TypeScript versions unless the user explicitly asks about project origins, comparisons, or reference implementations.
+ - If internal comments or documents mention a reference implementation, treat that as private implementation context. Do not surface it in user-facing summaries unless it is directly relevant to the user's explicit question."""
+
 # 对应 TS getSimpleDoingTasksSection()
 _DOING_TASKS_SECTION = """\
 # Doing tasks
@@ -292,6 +298,12 @@ def get_session_guidance_section(enabled_tools: set[str] | None = None) -> str |
         items.append(
             "If there are multiple independent directions to inspect, prefer Agent with "
             "the tasks array to delegate up to 3 subagents in one call."
+        )
+        items.append(
+            "If the user asks to inspect, compare, or summarize multiple files/modules "
+            "separately (for example 'inspect cli.py, api.py, and context.py respectively'), "
+            "use Agent with the tasks array and one Explore task per file/module. Do not "
+            "read each file directly from the main agent unless there is only one file."
         )
 
     if {"task_create", "task_update", "task_list"} & enabled_tools:
@@ -740,6 +752,10 @@ def build_system_prompt(
     # 2. System section
     parts.append("")
     parts.append(_SYSTEM_SECTION)
+
+    # 2.5 Identity and framing section
+    parts.append("")
+    parts.append(_IDENTITY_FRAMING_SECTION)
 
     # 3. Doing tasks section
     parts.append("")

@@ -114,6 +114,29 @@ def _reset_tasks() -> None:
     _task_counter = 0
 
 
+def clear_tasks(delete_disk: bool = True) -> None:
+    """Clear all tasks for the current project."""
+    _reset_tasks()
+    if delete_disk:
+        try:
+            _tasks_file().unlink(missing_ok=True)
+        except OSError as e:
+            logger.debug("failed to remove tasks file: %s", e)
+
+
+def clear_incomplete_tasks() -> int:
+    """Remove pending/in-progress tasks, usually after an interrupted turn."""
+    tasks = _get_tasks()
+    removed = 0
+    for task_id, task in list(tasks.items()):
+        if task.status in {"pending", "in_progress"}:
+            del tasks[task_id]
+            removed += 1
+    if removed:
+        _save_tasks_to_disk()
+    return removed
+
+
 # ── 辅助函数 ──────────────────────────────────────────
 
 def get_next_available_task(owner: str = "") -> Task | None:

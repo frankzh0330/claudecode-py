@@ -5,7 +5,8 @@ import pytest
 from termpilot.tool_result_storage import (
     should_persist, persist_tool_result, build_large_result_message,
     truncate_tool_result, process_tool_result, cleanup_storage,
-    PREVIEW_SIZE, PERSIST_THRESHOLD, PERSISTED_TAG,
+    persist_agent_result, PREVIEW_SIZE, PERSIST_THRESHOLD, PERSISTED_TAG,
+    AGENT_HANDOFF_PREVIEW_SIZE,
 )
 
 
@@ -34,6 +35,29 @@ class TestPersistToolResult:
         content = "a" * 100000
         info = persist_tool_result(content, "tool-456")
         assert len(info["preview"]) == PREVIEW_SIZE
+
+
+class TestPersistAgentResult:
+    def test_writes_full_result_and_returns_summary(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("termpilot.tool_result_storage._get_agent_results_dir", lambda: tmp_path)
+        content = "x" * (AGENT_HANDOFF_PREVIEW_SIZE + 500)
+
+        info = persist_agent_result(
+            content,
+            "agent-123",
+            subagent_type="Explore",
+            description="Inspect project",
+        )
+
+        path = tmp_path / "agent-123.md"
+        assert path.exists()
+        saved = path.read_text()
+        assert "Agent type: Explore" in saved
+        assert content in saved
+        assert info["filepath"] == str(path)
+        assert info["original_size"] == len(content)
+        assert info["has_more"] is True
+        assert len(info["summary"]) < len(content)
 
 
 class TestBuildLargeResultMessage:

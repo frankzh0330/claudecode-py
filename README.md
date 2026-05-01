@@ -10,7 +10,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 
 ## Highlights
 
-- Multi-provider API support: Anthropic, OpenAI, OpenAI-compatible endpoints, and compatible providers such as Zhipu GLM
+- Multi-provider API support: Anthropic, OpenAI, Zhipu GLM, DeepSeek, and Seed
 - Streaming responses with Markdown-friendly terminal rendering
 - Quiet terminal UI with staged status updates, compact tool cards, and on-demand detail expansion
 - Tool-use loop: the model can call tools repeatedly until the task is complete
@@ -80,20 +80,11 @@ You'll see a provider selector:
 
 ```
 ? Select your LLM provider:
-  > OpenAI
-    Anthropic (Claude)
+  > Anthropic (Claude)
+    OpenAI
     Zhipu GLM
     DeepSeek
-    Qwen / DashScope
-    Moonshot / Kimi
-    SiliconFlow
-    OpenRouter
-    Groq
-    Together
-    Fireworks
-    Ollama (local)
-    vLLM (local)
-    OpenAI-compatible (custom)
+    Seed
 ```
 
 Select your provider, enter your API key, and you're ready to go.
@@ -117,7 +108,7 @@ Or manually edit `~/.termpilot/settings.json`:
 }
 ```
 
-All providers use the OpenAI-compatible API format. Supported providers: OpenAI, Anthropic, Zhipu GLM, DeepSeek, Qwen/DashScope, Moonshot/Kimi, SiliconFlow, OpenRouter, Groq, Together, Fireworks, Ollama, vLLM, and any custom OpenAI-compatible endpoint.
+The setup wizard intentionally keeps the provider list short. Supported setup providers: Anthropic, OpenAI, Zhipu GLM, DeepSeek, and Seed. Existing OpenAI-compatible settings can still be configured manually with `TERMPILOT_BASE_URL`, `TERMPILOT_API_KEY`, and `TERMPILOT_MODEL`.
 
 Environment variables override `settings.json`.
 
@@ -234,8 +225,10 @@ For a deeper module breakdown, see [ARCHITECTURE.md](ARCHITECTURE.md).
 - [docs/conventions.md](docs/conventions.md): naming and organization conventions
 - [docs/hooks.md](docs/hooks.md): hook design and behavior
 - [docs/compact.md](docs/compact.md): compaction strategy
+- [docs/message-queue.md](docs/message-queue.md): interactive queue, drain loop, interrupts, and prompt handling
 - [docs/mcp_skills.md](docs/mcp_skills.md): MCP, skills, and commands
 - [docs/task-tool.md](docs/task-tool.md): task management, persistence, and dependency graph
+- [docs/task-delegation.md](docs/task-delegation.md): task delegation and sub-agent routing
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md): system prompt sections
 - [docs/messages_attachments.md](docs/messages_attachments.md): message formats and file attachments
 

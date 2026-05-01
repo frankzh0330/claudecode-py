@@ -43,6 +43,7 @@ from termpilot.config import (
     get_effective_api_key,
     get_effective_base_url,
     get_effective_provider,
+    _get_raw_provider,
     get_settings_path,
     is_placeholder_key,
 )
@@ -61,6 +62,51 @@ MAX_CONCURRENT_TOOLS = int(
 
 MAX_API_RETRIES = 3
 MAX_TOOL_RETRIES = 2
+
+
+def _tool_result_success(tool_name: str, result_text: str) -> bool:
+    """Infer whether a string-returning tool succeeded."""
+    if tool_name == "agent":
+        return not result_text.lstrip().startswith((
+            "Agent API error:",
+            "Agent error:",
+            "Error:",
+        ))
+    return True
+
+
+def _apply_permission_rule_update(context: PermissionContext | None, update: dict[str, Any]) -> None:
+    """Apply a persisted permission rule update to the in-memory context."""
+    if context is None:
+        return
+
+    from termpilot.permissions import PermissionRule
+
+    try:
+        behavior = PermissionBehavior(update["behavior"])
+    except (KeyError, ValueError):
+        return
+
+    rule = PermissionRule(
+        tool_name=str(update.get("tool_name", "")),
+        pattern=str(update.get("pattern", "*")),
+        behavior=behavior,
+        source="user_settings",
+    )
+    if not rule.tool_name:
+        return
+
+    target_lists = {
+        PermissionBehavior.ALLOW: context.allow_rules,
+        PermissionBehavior.DENY: context.deny_rules,
+        PermissionBehavior.ASK: context.ask_rules,
+    }
+    for rules in target_lists.values():
+        rules[:] = [
+            existing for existing in rules
+            if not (existing.tool_name == rule.tool_name and existing.pattern == rule.pattern)
+        ]
+    target_lists[behavior].insert(0, rule)
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -89,8 +135,9 @@ def create_client() -> tuple[Any, str]:
     """
     apply_settings_env()
 
+    raw_provider = _get_raw_provider()
     provider = get_effective_provider()
-    api_key = get_effective_api_key(provider)
+    api_key = get_effective_api_key(raw_provider)
     settings_path = get_settings_path()
 
     if not api_key or is_placeholder_key(api_key):
@@ -99,8 +146,9 @@ def create_client() -> tuple[Any, str]:
             console.print("[dim]API key not configured. Launching setup wizard…[/]\n")
             run_setup_wizard()
             apply_settings_env()
+            raw_provider = _get_raw_provider()
             provider = get_effective_provider()
-            api_key = get_effective_api_key(provider)
+            api_key = get_effective_api_key(raw_provider)
         if not api_key or is_placeholder_key(api_key):
             sys.exit(
                 f"API key not configured.\n"
@@ -116,7 +164,7 @@ def create_client() -> tuple[Any, str]:
                 "Anthropic SDK not installed.\n"
                 "Run: pip install anthropic"
             )
-        base_url = get_effective_base_url(provider)
+        base_url = get_effective_base_url(raw_provider)
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url
@@ -124,7 +172,7 @@ def create_client() -> tuple[Any, str]:
         return client, "anthropic"
 
     # OpenAI-compatible
-    base_url = get_effective_base_url(provider)
+    base_url = get_effective_base_url(raw_provider)
     try:
         from openai import AsyncOpenAI
     except ImportError:
@@ -164,12 +212,33 @@ async def _call_openai_streaming(
             })
         kwargs["tools"] = oai_tools
 
-    stream = await client.chat.completions.create(**kwargs)
+    try:
+        stream = await client.chat.completions.create(
+            **kwargs,
+            stream_options={"include_usage": True},
+        )
+    except Exception as e:
+        # Some OpenAI-compatible providers do not accept stream_options. Fall
+        # back to the plain request instead of failing the user turn.
+        if "stream_options" not in str(e):
+            raise
+        logger.debug("provider does not support stream_options, retrying without usage: %s", e)
+        stream = await client.chat.completions.create(**kwargs)
 
     # 收集 tool_calls
     tool_call_buffers: dict[int, dict[str, Any]] = {}  # index -> {id, name, arguments}
 
     async for chunk in stream:
+        if hasattr(chunk, "usage") and chunk.usage:
+            yield {
+                "type": "usage",
+                "usage": {
+                    "input_tokens": getattr(chunk.usage, "prompt_tokens", 0) or 0,
+                    "output_tokens": getattr(chunk.usage, "completion_tokens", 0) or 0,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                },
+            }
         if not chunk.choices:
             continue
         delta = chunk.choices[0].delta
@@ -443,6 +512,7 @@ async def _execute_tools_concurrent(
                                     behavior=PermissionBehavior(update["behavior"]),
                                     source="user_settings",
                                 ))
+                                _apply_permission_rule_update(permission_context, update)
 
                         if user_result.behavior == PermissionBehavior.DENY:
                             result_text = f"权限拒绝: {user_result.message or '用户拒绝'}"
@@ -506,8 +576,10 @@ async def _execute_tools_concurrent(
                         call_kwargs = dict(tb["input"])
                         if permission_context and tb["name"] in ("enter_plan_mode", "exit_plan_mode"):
                             call_kwargs["permission_context"] = permission_context
+                        if tb["name"] == "agent" and on_event:
+                            call_kwargs["_parent_on_event"] = on_event
                         result_text = await tool.call(**call_kwargs)
-                        success = True
+                        success = _tool_result_success(tb["name"], result_text)
                         break
                     except Exception as e:
                         if attempt == MAX_TOOL_RETRIES or not _is_retryable_tool_error(e):
@@ -571,6 +643,8 @@ async def _execute_tools_concurrent(
                 call_kwargs = dict(tb["input"])
                 if permission_context and tb["name"] in ("enter_plan_mode", "exit_plan_mode"):
                     call_kwargs["permission_context"] = permission_context
+                if tb["name"] == "agent" and on_event:
+                    call_kwargs["_parent_on_event"] = on_event
                 # exit_plan_mode: show plan and ask user for approval
                 if tb["name"] == "exit_plan_mode":
                     plan = tb["input"].get("plan", "")
@@ -606,7 +680,7 @@ async def _execute_tools_concurrent(
                         if choice != "yes":
                             call_kwargs["plan_approved"] = False
                 result_text = await tool.call(**call_kwargs)
-                success = True
+                success = _tool_result_success(tb["name"], result_text)
                 break
             except Exception as e:
                 if attempt == MAX_TOOL_RETRIES or not _is_retryable_tool_error(e):

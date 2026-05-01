@@ -261,9 +261,12 @@ async def _cmd_compact(args: str, ctx: dict) -> CommandResult:
 
 
 async def _cmd_clear(args: str, ctx: dict) -> CommandResult:
-    """清除对话历史。"""
+    """清除对话历史和当前项目任务列表。"""
+    from termpilot.tools.task import clear_tasks
+
+    clear_tasks()
     return CommandResult(
-        output="Conversation cleared.",
+        output="Conversation and task list cleared.",
         should_query=False,
         new_messages=[],  # 空列表表示清除
     )
@@ -297,7 +300,7 @@ async def _cmd_config(args: str, ctx: dict) -> CommandResult:
         "Current configuration:",
         f"  Model: {model}",
         f"  API Key: {masked_key}",
-        f"  Base URL: {base_url or 'default (Anthropic)'}",
+        f"  Base URL: {base_url or 'provider default'}",
         f"  Context Window: {context_window:,} tokens",
         f"  MCP Servers: {len(settings.get('mcpServers', {}))} configured",
     ]
@@ -476,38 +479,11 @@ async def _cmd_rewind(args: str, ctx: dict) -> CommandResult:
     if len(turns) < 1:
         return CommandResult(output="Not enough turns to rewind.")
 
-    import questionary
-
-    def _esc_ask(q):
-        from prompt_toolkit.key_binding import KeyBindings
-        from prompt_toolkit.keys import Keys
-
-        bindings = KeyBindings()
-
-        @bindings.add(Keys.Escape, eager=True)
-        def _cancel(event):
-            event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
-
-        kb = q.application.key_bindings
-        if hasattr(kb, "add"):
-            kb.add(Keys.Escape, eager=True)(_cancel)
-        elif hasattr(kb, "registries"):
-            kb.registries.append(bindings)
-        return q.ask()
-
-    choices = [
-        questionary.Choice(
-            f"#{i + 1}  {t['preview']}",
-            value=t["uuid"],
-        )
-        for i, t in enumerate(turns)
-    ]
-
     try:
         loop = asyncio.get_event_loop()
         choice = await loop.run_in_executor(
             None,
-            lambda: _esc_ask(questionary.select("Rewind to:", choices=choices)),
+            lambda: _ask_rewind_choice(turns),
         )
     except (KeyboardInterrupt, EOFError):
         choice = None
@@ -522,6 +498,27 @@ async def _cmd_rewind(args: str, ctx: dict) -> CommandResult:
         output=f"Rewound to {len(messages)} messages.",
         new_messages=messages,
     )
+
+
+def _ask_rewind_choice(turns: list[dict[str, Any]]) -> str | None:
+    """Ask for a rewind target using stable numeric input."""
+    print("Rewind to:")
+    for i, turn in enumerate(turns, start=1):
+        preview = str(turn.get("preview", "")).replace("\n", " ")
+        print(f"  [{i}] {preview[:100]}")
+    print()
+    try:
+        raw_choice = input(f"选择 [1-{len(turns)}]（直接回车取消）: ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return None
+    if not raw_choice:
+        return None
+    if not raw_choice.isdigit():
+        return None
+    index = int(raw_choice) - 1
+    if index < 0 or index >= len(turns):
+        return None
+    return str(turns[index].get("uuid") or "")
 
 
 # ── /commit ────────────────────────────────────────────

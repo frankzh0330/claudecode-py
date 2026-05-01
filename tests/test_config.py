@@ -99,6 +99,23 @@ class TestGetEffectiveProvider:
         from termpilot.config import get_effective_provider
         assert get_effective_provider() == "openai_compatible"
 
+    def test_setup_provider_list_is_curated(self):
+        from termpilot.config import _PROVIDERS
+        assert list(_PROVIDERS.keys()) == [
+            "Anthropic (Claude)",
+            "OpenAI",
+            "Zhipu GLM",
+            "DeepSeek",
+            "Seed",
+        ]
+
+    def test_deepseek_provider_defaults_use_v4(self):
+        from termpilot.config import _MODEL_PRESETS, _PROVIDERS
+
+        assert _PROVIDERS["DeepSeek"]["base_url"] == "https://api.deepseek.com"
+        assert _PROVIDERS["DeepSeek"]["default_model"] == "deepseek-v4-pro"
+        assert _MODEL_PRESETS["deepseek"][0] == "deepseek-v4-pro"
+
 
 class TestGetEffectiveModel:
     def test_default(self, tmp_settings, env_clean):
@@ -132,6 +149,67 @@ class TestGetEffectiveBaseUrl:
         tmp_settings({"env": {"TERMPILOT_PROVIDER": "zhipu", "ZHIPU_BASE_URL": "https://open.bigmodel.cn/api/paas/v4"}})
         from termpilot.config import get_effective_base_url
         assert get_effective_base_url() == "https://open.bigmodel.cn/api/paas/v4"
+
+    def test_seed_provider_env_keys(self, tmp_settings, env_clean):
+        tmp_settings({
+            "provider": "seed",
+            "env": {
+                "ARK_API_KEY": "ark-test",
+                "ARK_BASE_URL": "https://ark.cn-beijing.volces.com/api/v3",
+                "ARK_MODEL": "doubao-seed-2-0-code-preview-260215",
+            },
+        })
+        from termpilot.config import get_effective_api_key, get_effective_base_url, get_effective_model
+        assert get_effective_api_key() == "ark-test"
+        assert get_effective_base_url() == "https://ark.cn-beijing.volces.com/api/v3"
+        assert get_effective_model() == "doubao-seed-2-0-code-preview-260215"
+
+    def test_seed_provider_prefers_ark_over_stale_deepseek(self, tmp_settings, env_clean):
+        tmp_settings({
+            "provider": "seed",
+            "env": {
+                "DEEPSEEK_API_KEY": "deepseek-stale",
+                "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+                "DEEPSEEK_MODEL": "deepseek-v4-pro",
+                "ARK_API_KEY": "ark-current",
+                "ARK_BASE_URL": "https://ark.cn-beijing.volces.com/api/v3",
+                "ARK_MODEL": "doubao-seed-2-0-code-preview-260215",
+            },
+        })
+        from termpilot.config import get_effective_api_key, get_effective_base_url, get_effective_model
+        assert get_effective_api_key() == "ark-current"
+        assert get_effective_base_url() == "https://ark.cn-beijing.volces.com/api/v3"
+        assert get_effective_model() == "doubao-seed-2-0-code-preview-260215"
+
+    def test_create_client_keeps_raw_provider_for_compatible_base_url(
+        self, tmp_settings, env_clean, monkeypatch
+    ):
+        tmp_settings({
+            "provider": "seed",
+            "env": {
+                "DEEPSEEK_API_KEY": "deepseek-stale",
+                "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+                "DEEPSEEK_MODEL": "deepseek-v4-pro",
+                "ARK_API_KEY": "ark-current",
+                "ARK_BASE_URL": "https://ark.cn-beijing.volces.com/api/v3",
+                "ARK_MODEL": "doubao-seed-2-0-code-preview-260215",
+            },
+        })
+
+        captured = {}
+
+        class FakeAsyncOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr("openai.AsyncOpenAI", FakeAsyncOpenAI)
+
+        from termpilot.api import create_client
+
+        _, client_format = create_client()
+        assert client_format == "openai"
+        assert captured["api_key"] == "ark-current"
+        assert captured["base_url"] == "https://ark.cn-beijing.volces.com/api/v3"
 
 
 class TestGetContextWindow:
