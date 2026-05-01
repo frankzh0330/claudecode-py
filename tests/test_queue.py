@@ -166,3 +166,17 @@ class TestGlobalQueue:
         reset_main_queue()
         q2 = get_main_queue()
         assert q1 is not q2
+
+
+class TestDiscard:
+    def test_discard_removes_matching_commands_only(self):
+        q = MessageQueue()
+        q.enqueue(_cmd(mode="prompt", value="drop", origin="user"))
+        q.enqueue(_cmd(mode="slash_command", value="/keep", origin="user"))
+        q.enqueue(_cmd(mode="prompt", value="keep-agent", origin="agent"))
+
+        removed = q.discard(lambda cmd: cmd.mode == "prompt" and cmd.origin == "user")
+
+        assert removed == 1
+        assert q.dequeue_nowait().value == "/keep"
+        assert q.dequeue_nowait().value == "keep-agent"

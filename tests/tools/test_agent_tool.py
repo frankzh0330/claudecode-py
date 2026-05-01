@@ -26,6 +26,16 @@ class TestAgentToolSchema:
         assert "Plan" in description
         assert "Explore" in description
         assert "Verification" in description
+        assert "one Explore task per file/module" in description
+
+    def test_builtin_agent_prompts_keep_termpilot_framing(self):
+        from termpilot.tools.agent import BUILTIN_AGENTS
+
+        for config in BUILTIN_AGENTS.values():
+            prompt = config["prompt"]
+            assert "TermPilot perspective" in prompt
+            assert "Claude Code" in prompt
+            assert "unless the user explicitly asks" in prompt
 
 
 class TestAgentToolCall:

@@ -56,6 +56,13 @@ class TestBuildSystemPrompt:
         assert "# System" in prompt
         assert "permission mode" in prompt.lower()
 
+    def test_contains_identity_framing(self):
+        from termpilot.context import build_system_prompt
+        prompt = build_system_prompt()
+        assert "# Identity and framing" in prompt
+        assert "Present this project as TermPilot" in prompt
+        assert "Do not mention reference implementations" in prompt
+
     def test_contains_doing_tasks(self):
         from termpilot.context import build_system_prompt
         prompt = build_system_prompt()
@@ -108,6 +115,7 @@ class TestSessionGuidance:
         assert "subagent_type=Explore" in result
         assert "subagent_type=Verification" in result
         assert "tasks array" in result
+        assert "one Explore task per file/module" in result
 
     def test_with_task_tools(self):
         from termpilot.context import get_session_guidance_section

@@ -127,6 +127,22 @@ class MessageQueue:
         _, _, cmd = self._queue._queue[idx]  # type: ignore[attr-defined]
         return cmd
 
+    def discard(self, filter_fn: QueueFilter) -> int:
+        """Remove queued commands matching filter_fn and return the count."""
+        kept = []
+        removed = 0
+        for item in self._queue._queue:  # type: ignore[attr-defined]
+            _, _, cmd = item
+            if filter_fn(cmd):
+                removed += 1
+            else:
+                kept.append(item)
+        if removed:
+            self._queue._queue[:] = kept  # type: ignore[attr-defined]
+            heapq.heapify(self._queue._queue)  # type: ignore[attr-defined]
+            logger.debug("discarded %d queued commands", removed)
+        return removed
+
     def is_empty(self) -> bool:
         return self._queue.empty()
 
@@ -175,3 +191,15 @@ def register_running_agent(task: asyncio.Task) -> None:
 def has_running_agents() -> bool:
     """是否仍有后台 agent 在运行。"""
     return bool(_running_agents)
+
+
+def cancel_running_agents() -> int:
+    """Cancel all registered background agent tasks and return the count."""
+    count = 0
+    for task in list(_running_agents):
+        if not task.done():
+            task.cancel()
+            count += 1
+    if count:
+        logger.debug("cancelled %d running agent task(s)", count)
+    return count

@@ -71,9 +71,9 @@ def clean_commands():
 def clean_tasks():
     """清空任务注册表。"""
     import termpilot.tools.task as task_mod
-    task_mod._tasks.clear()
+    task_mod._reset_tasks()
     yield
-    task_mod._tasks.clear()
+    task_mod._reset_tasks()
 
 
 @pytest.fixture

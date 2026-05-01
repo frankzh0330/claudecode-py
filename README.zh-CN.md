@@ -234,9 +234,12 @@ src/termpilot/
 - [docs/conventions.md](docs/conventions.md)：命名和组织约定
 - [docs/hooks.md](docs/hooks.md)：Hook 设计和行为
 - [docs/compact.md](docs/compact.md)：压缩策略
+- [docs/message-queue.md](docs/message-queue.md)：交互队列、drain loop、中断和 prompt 处理
 - [docs/mcp_skills.md](docs/mcp_skills.md)：MCP、Skills 和命令
 - [docs/task-tool.md](docs/task-tool.md)：任务管理、持久化和依赖图
+- [docs/task-delegation.md](docs/task-delegation.md)：任务委派与子代理路由
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md)：System Prompt 各 Section
+- [docs/messages_attachments.md](docs/messages_attachments.md)：消息格式和文件附件
 
 ## 开发状态
 

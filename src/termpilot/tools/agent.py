@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Any
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from termpilot.config import get_config_home
 logger = logging.getLogger(__name__)
 
 MAX_BATCH_TASKS = 3
+DEFAULT_SUBAGENT_TIMEOUT_SECONDS = 0
 
 # 内置代理类型
 BUILTIN_AGENTS = {
@@ -40,7 +42,12 @@ BUILTIN_AGENTS = {
             "- Use read_file when you know the specific file path\n"
             "- Use bash ONLY for read-only operations (ls, git status, git log, etc.)\n"
             "- Be thorough: search with multiple patterns if needed\n"
-            "- Report your findings concisely"
+            "- Report your findings concisely\n"
+            "- Describe the project from the TermPilot perspective. Do not mention reference "
+            "implementations, upstream projects, comparison targets, Claude Code, or TypeScript "
+            "versions unless the user explicitly asks about origins or comparisons.\n"
+            "- If internal comments or docs mention a reference implementation, treat that as private "
+            "implementation context and omit it from user-facing summaries."
         ),
         "tools": ["list_dir", "read_file", "glob", "grep", "bash"],
     },
@@ -56,7 +63,12 @@ BUILTIN_AGENTS = {
             "3. Identify existing functions/utilities that should be reused\n"
             "4. Design the implementation approach step by step\n"
             "5. Consider architectural trade-offs\n\n"
-            "Output a clear, step-by-step plan with file paths and specific changes."
+            "Output a clear, step-by-step plan with file paths and specific changes.\n"
+            "Describe the project from the TermPilot perspective. Do not mention reference "
+            "implementations, upstream projects, comparison targets, Claude Code, or TypeScript "
+            "versions unless the user explicitly asks about origins or comparisons.\n"
+            "If internal comments or docs mention a reference implementation, treat that as private "
+            "implementation context and omit it from user-facing summaries."
         ),
         "tools": ["list_dir", "read_file", "glob", "grep", "bash"],
     },
@@ -72,7 +84,12 @@ BUILTIN_AGENTS = {
             "2. Inspect relevant files and diffs\n"
             "3. Run targeted tests or checks when appropriate\n"
             "4. Report failures, risks, and missing coverage clearly\n\n"
-            "Output concise findings first, followed by commands/checks performed."
+            "Output concise findings first, followed by commands/checks performed.\n"
+            "Describe the project from the TermPilot perspective. Do not mention reference "
+            "implementations, upstream projects, comparison targets, Claude Code, or TypeScript "
+            "versions unless the user explicitly asks about origins or comparisons.\n"
+            "If internal comments or docs mention a reference implementation, treat that as private "
+            "implementation context and omit it from user-facing summaries."
         ),
         "tools": ["list_dir", "read_file", "glob", "grep", "bash"],
     },
@@ -81,7 +98,12 @@ BUILTIN_AGENTS = {
         "prompt": (
             "You are a general-purpose agent. Complete the task assigned to you.\n"
             "Use all available tools to accomplish your goal.\n"
-            "Report your findings concisely when done."
+            "Report your findings concisely when done.\n"
+            "Describe the project from the TermPilot perspective. Do not mention reference "
+            "implementations, upstream projects, comparison targets, Claude Code, or TypeScript "
+            "versions unless the user explicitly asks about origins or comparisons.\n"
+            "If internal comments or docs mention a reference implementation, treat that as private "
+            "implementation context and omit it from user-facing summaries."
         ),
         "tools": None,  # None means all tools
     },
@@ -170,6 +192,8 @@ class AgentTool:
             "- Use subagent_type=Explore for pure discovery or analysis requests such as "
             "understanding a repository, architecture, design patterns, command systems, "
             "or broad file relationships.\n"
+            "- If the user asks to inspect, compare, or summarize multiple files/modules "
+            "separately, use the tasks array with one Explore task per file/module.\n"
             "- Use subagent_type=Verification only for checking completed work, tests, diffs, "
             "or regressions.\n"
             "- Use general-purpose for complex multi-step execution that is not just planning, "
@@ -177,7 +201,9 @@ class AgentTool:
             "- Use custom agents from ~/.termpilot/agents/*.md when their descriptions match "
             "the task.\n\n"
             "When NOT to use this tool:\n"
-            "- If you want to read a specific file path, use read_file instead\n"
+            "- If you want to read one specific file path, use read_file instead\n"
+            "- If the user names multiple files/modules and asks to inspect them separately, "
+            "use agent.tasks instead of direct read_file calls\n"
             "- If you are searching for a specific class/function like 'class Foo', "
             "use grep instead\n"
             "- If you are searching within a specific file, use read_file instead\n"
@@ -290,7 +316,16 @@ class AgentTool:
             return f"Error: Unknown agent type '{subagent_type}'"
 
         try:
-            result = await self._run_agent(subagent_type, agent_config, prompt)
+            parent_on_event = kwargs.get("_parent_on_event")
+            if parent_on_event:
+                result = await self._run_agent(
+                    subagent_type,
+                    agent_config,
+                    prompt,
+                    parent_on_event=parent_on_event,
+                )
+            else:
+                result = await self._run_agent(subagent_type, agent_config, prompt)
             return result
         except Exception as e:
             return f"Agent error: {e}"
@@ -505,6 +540,7 @@ class AgentTool:
             agent_type: str,
             config: dict[str, Any],
             prompt: str,
+            parent_on_event: Any = None,
     ) -> str:
         """运行子代理。
 
@@ -552,22 +588,71 @@ class AgentTool:
         logger.debug("agent _run_agent: type=%s, tools=%d, prompt=%d chars",
                      agent_type, len(agent_tools), len(prompt))
 
+        reported_tools: set[str] = set()
+        last_phase = ""
+
+        def _subagent_event(event: dict[str, Any]) -> None:
+            nonlocal last_phase
+            if not parent_on_event:
+                return
+            event_type = event.get("type")
+            if event_type == "tool_started":
+                tool_name = event.get("name", "tool")
+                if tool_name in reported_tools:
+                    return
+                reported_tools.add(tool_name)
+                parent_on_event({
+                    "type": "status_updated",
+                    "text": f"{agent_type} agent: using {tool_name}…",
+                })
+            elif event_type in {"tool_finished", "tool_failed"}:
+                if event_type != "tool_failed":
+                    return
+                parent_on_event({
+                    "type": "status_updated",
+                    "text": f"{agent_type} agent: tool failed, adjusting…",
+                })
+            elif event_type == "assistant_text_started":
+                if last_phase == "summarizing":
+                    return
+                last_phase = "summarizing"
+                parent_on_event({
+                    "type": "status_updated",
+                    "text": f"{agent_type} agent: summarizing…",
+                })
+
+        timeout_seconds = int(
+            os.environ.get("TERMPILOT_SUBAGENT_TIMEOUT_SECONDS", "")
+            or DEFAULT_SUBAGENT_TIMEOUT_SECONDS
+        )
+
         try:
-            result = await query_with_tools(
+            agent_run = query_with_tools(
                 client=client,
                 model=model,
                 system_prompt=system_prompt,
                 messages=messages,
                 tools=agent_tools,
                 max_tokens=8192,
-                # 子代理不需要权限确认和 UI 回调
+                # 子代理不直接渲染工具卡片，但会把阶段状态回传给父 UI。
                 on_text=None,
                 on_tool_call=None,
+                on_event=_subagent_event if parent_on_event else None,
                 permission_context=None,
                 on_permission_ask=None,
                 client_format=client_format,
             )
+            if timeout_seconds > 0:
+                result = await asyncio.wait_for(agent_run, timeout=timeout_seconds)
+            else:
+                result = await agent_run
             return result or "(agent returned no text)"
+        except asyncio.TimeoutError:
+            return (
+                f"Agent API error: {agent_type} agent timed out after "
+                f"{timeout_seconds} seconds. Try narrowing the task or set "
+                "TERMPILOT_SUBAGENT_TIMEOUT_SECONDS to a larger value."
+            )
 
         except Exception as e:
             logger.debug("agent error: %s", e)

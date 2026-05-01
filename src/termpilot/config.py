@@ -27,26 +27,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from termpilot.prompt_utils import ask_with_esc
+
 logger = logging.getLogger(__name__)
-
-
-def _esc_ask(question) -> Any:
-    """Ask a questionary prompt with ESC to cancel."""
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.keys import Keys
-
-    bindings = KeyBindings()
-
-    @bindings.add(Keys.Escape, eager=True)
-    def _cancel(event):
-        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
-
-    kb = question.application.key_bindings
-    if hasattr(kb, "add"):
-        kb.add(Keys.Escape, eager=True)(_cancel)
-    elif hasattr(kb, "registries"):
-        kb.registries.append(bindings)
-    return question.ask()
 
 
 _PROVIDER_ALIASES = {
@@ -303,7 +286,7 @@ def run_setup_wizard() -> None:
     # 读取已有配置 → 预填值
     existing_env = get_settings_env()
 
-    choice = _esc_ask(questionary.select(
+    choice = ask_with_esc(questionary.select(
         "Select your LLM provider:",
         choices=list(_PROVIDERS.keys()),
         default=current_label,
@@ -318,7 +301,7 @@ def run_setup_wizard() -> None:
     env_key = info.get("env_key")
     if env_key:
         existing_key = existing_env.get(env_key, "")
-        api_key = _esc_ask(questionary.text(
+        api_key = ask_with_esc(questionary.text(
             f"Enter your {env_key}:",
             default=existing_key,
         ))
@@ -332,7 +315,7 @@ def run_setup_wizard() -> None:
         existing_url = existing_env.get(
             info.get("base_url_env_key") or f"{info['provider'].upper()}_BASE_URL", ""
         )
-        base_url = _esc_ask(questionary.text(
+        base_url = ask_with_esc(questionary.text(
             "Enter base URL (e.g. https://api.example.com/v1):",
             default=existing_url,
         )) or ""
@@ -342,7 +325,7 @@ def run_setup_wizard() -> None:
     existing_model = existing_env.get(model_env_key, "")
     default_model = existing_model or info.get("default_model", "")
     if not default_model:
-        default_model = _esc_ask(questionary.text(
+        default_model = ask_with_esc(questionary.text(
             "Enter model name:",
         )) or ""
 
@@ -484,7 +467,7 @@ def run_model_picker() -> dict[str, Any]:
 
     choices.append(questionary.Choice("Custom model…", value="__custom__"))
 
-    choice = _esc_ask(questionary.select(
+    choice = ask_with_esc(questionary.select(
         f"Select model for {provider_label or raw_provider}:",
         choices=choices,
         default=current_model,
@@ -495,7 +478,7 @@ def run_model_picker() -> dict[str, Any]:
         return {"changed": False, "model": current_model, "provider": raw_provider}
 
     if choice == "__custom__":
-        custom_model = _esc_ask(questionary.text(
+        custom_model = ask_with_esc(questionary.text(
             "Enter model name:",
             default=current_model,
         ))
