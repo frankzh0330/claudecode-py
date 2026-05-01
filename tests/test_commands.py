@@ -68,10 +68,16 @@ class TestDispatchCommands:
         assert "/help" in result.output
 
     @pytest.mark.asyncio
-    async def test_clear(self):
+    async def test_clear(self, clean_tasks):
+        from termpilot.tools.task import TaskCreateTool, _get_tasks
+
+        await TaskCreateTool().call(subject="Old task", description="Should be cleared")
+        assert _get_tasks()
+
         result = await dispatch_command("clear", "")
         assert result.new_messages == []
         assert "cleared" in result.output.lower()
+        assert _get_tasks() == {}
 
     @pytest.mark.asyncio
     async def test_exit(self):
@@ -162,3 +168,50 @@ class TestDispatchCommands:
         assert result.should_query is False
         assert result.new_messages is None
         assert "Context not compacted" in result.output
+
+    @pytest.mark.asyncio
+    async def test_rewind_uses_numeric_choice(self, monkeypatch):
+        class FakeStorage:
+            session_id = "session-1"
+
+            def __init__(self):
+                self.last_uuid = None
+
+            def set_last_uuid(self, uuid):
+                self.last_uuid = uuid
+
+        turns = [
+            {"uuid": "u1", "preview": "first request"},
+            {"uuid": "u2", "preview": "second request"},
+        ]
+        messages = [{"role": "user", "content": "second request"}]
+        storage = FakeStorage()
+
+        monkeypatch.setattr("termpilot.session.list_session_turns", lambda session_id: turns)
+        monkeypatch.setattr("termpilot.session.load_session_at_point", lambda session_id, uuid: messages)
+        monkeypatch.setattr("builtins.input", lambda prompt="": "2")
+
+        result = await dispatch_command("rewind", "", {"storage": storage})
+
+        assert result.new_messages == messages
+        assert storage.last_uuid == "u2"
+        assert result.output == "Rewound to 1 messages."
+
+    @pytest.mark.asyncio
+    async def test_rewind_blank_choice_cancels(self, monkeypatch):
+        class FakeStorage:
+            session_id = "session-1"
+
+            def set_last_uuid(self, uuid):
+                raise AssertionError("set_last_uuid should not be called")
+
+        monkeypatch.setattr(
+            "termpilot.session.list_session_turns",
+            lambda session_id: [{"uuid": "u1", "preview": "first request"}],
+        )
+        monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+        result = await dispatch_command("rewind", "", {"storage": FakeStorage()})
+
+        assert result.output == "Cancelled."
+        assert result.new_messages is None

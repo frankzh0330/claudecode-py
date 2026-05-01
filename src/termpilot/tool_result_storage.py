@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 # 预览大小限制（字符数）
 PREVIEW_SIZE = 2000
+AGENT_HANDOFF_PREVIEW_SIZE = 3000
 
 # 持久化阈值：超过此大小的结果写入磁盘
 PERSIST_THRESHOLD = 50_000  # 50K 字符
@@ -48,6 +49,18 @@ def _get_result_path(tool_use_id: str) -> Path:
     # 清理 id 中的特殊字符
     safe_id = tool_use_id.replace("/", "_").replace("\\", "_")
     return _get_storage_dir() / f"{safe_id}.txt"
+
+
+def _get_agent_results_dir() -> Path:
+    """获取后台 agent 完整结果存储目录。"""
+    storage_dir = Path.cwd() / ".termpilot" / "agent-results"
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    return storage_dir
+
+
+def _get_agent_result_path(agent_id: str) -> Path:
+    safe_id = agent_id.replace("/", "_").replace("\\", "_")
+    return _get_agent_results_dir() / f"{safe_id}.md"
 
 
 def should_persist(content: str) -> bool:
@@ -80,6 +93,44 @@ def persist_tool_result(content: str, tool_use_id: str) -> dict[str, Any]:
         "filepath": str(filepath),
         "original_size": len(content),
         "preview": preview,
+        "has_more": has_more,
+    }
+
+
+def persist_agent_result(
+    content: str,
+    agent_id: str,
+    subagent_type: str = "",
+    description: str = "",
+) -> dict[str, Any]:
+    """保存后台 agent 完整结果，并返回预算内 handoff 摘要。
+
+    后台 agent 的完整输出可能很长。主 loop 上下文只应注入摘要和文件引用，
+    完整结果保存在磁盘，后续可通过 read_file 或 /details 类命令读取。
+    """
+    filepath = _get_agent_result_path(agent_id)
+    header = (
+        f"# Agent Result: {agent_id}\n\n"
+        f"- Agent type: {subagent_type or 'agent'}\n"
+        f"- Description: {description or '(none)'}\n"
+        f"- Original size: {len(content)} characters\n\n"
+        "## Result\n\n"
+    )
+    try:
+        filepath.write_text(header + content, encoding="utf-8")
+        logger.debug("Persisted agent result to %s (%d chars)", filepath, len(content))
+    except OSError as e:
+        logger.warning("Failed to persist agent result: %s", e)
+
+    summary = content[:AGENT_HANDOFF_PREVIEW_SIZE]
+    has_more = len(content) > AGENT_HANDOFF_PREVIEW_SIZE
+    if has_more:
+        summary += f"\n\n... ({len(content) - AGENT_HANDOFF_PREVIEW_SIZE} more characters saved on disk)"
+
+    return {
+        "filepath": str(filepath),
+        "original_size": len(content),
+        "summary": summary,
         "has_more": has_more,
     }
 

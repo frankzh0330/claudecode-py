@@ -45,3 +45,19 @@ def test_batch_agent_preview_summarizes_each_subtask():
     assert "1. Explore - Inspect commands (completed)" in preview
     assert "2. Nope - Bad agent (failed)" in preview
     assert "Summary: 1/2 succeeded" in preview
+
+
+def test_single_agent_preview_is_short_and_compact():
+    long_line = "x" * 200
+    result = "\n".join([
+        "# Full analysis",
+        long_line,
+        "Finding 1",
+        "Finding 2",
+        "Finding 3",
+    ])
+
+    preview = _preview_lines("agent", result, True)
+
+    assert len(preview) == 3
+    assert len(preview[1]) <= 121

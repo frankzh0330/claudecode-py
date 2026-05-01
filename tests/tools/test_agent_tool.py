@@ -15,6 +15,7 @@ class TestAgentToolSchema:
         assert "subagent_type" in properties
         assert "prompt" in properties
         assert "tasks" in properties
+        assert "run_in_background" in properties
         assert properties["tasks"]["maxItems"] == MAX_BATCH_TASKS
         assert schema.get("required", []) == []
 
@@ -25,6 +26,16 @@ class TestAgentToolSchema:
         assert "Plan" in description
         assert "Explore" in description
         assert "Verification" in description
+        assert "one Explore task per file/module" in description
+
+    def test_builtin_agent_prompts_keep_termpilot_framing(self):
+        from termpilot.tools.agent import BUILTIN_AGENTS
+
+        for config in BUILTIN_AGENTS.values():
+            prompt = config["prompt"]
+            assert "TermPilot perspective" in prompt
+            assert "Claude Code" in prompt
+            assert "unless the user explicitly asks" in prompt
 
 
 class TestAgentToolCall:
@@ -42,6 +53,35 @@ class TestAgentToolCall:
         )
 
         assert result == "Explore: Find command registration."
+
+    @pytest.mark.asyncio
+    async def test_background_agent_returns_launch_notification(self, monkeypatch):
+        launched = {}
+
+        def fake_launch(self, agent_id, agent_type, config, prompt, description=""):
+            launched.update({
+                "agent_id": agent_id,
+                "agent_type": agent_type,
+                "prompt": prompt,
+                "description": description,
+            })
+            return None
+
+        monkeypatch.setattr(AgentTool, "_launch_async_agent", fake_launch)
+
+        result = await AgentTool().call(
+            subagent_type="Explore",
+            description="Inspect commands",
+            prompt="Find command registration.",
+            run_in_background=True,
+        )
+        data = json.loads(result)
+
+        assert data["status"] == "async_launched"
+        assert data["subagent_type"] == "Explore"
+        assert launched["agent_type"] == "Explore"
+        assert launched["prompt"] == "Find command registration."
+        assert launched["description"] == "Inspect commands"
 
     @pytest.mark.asyncio
     async def test_batch_delegation_runs_each_task(self, monkeypatch):

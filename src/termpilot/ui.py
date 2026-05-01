@@ -35,7 +35,6 @@ class QuietUI:
 
     def __init__(self, console: Console) -> None:
         self.console = console
-        self._status = None
         self._status_text = ""
         self._next_tool_index = 1
         self.tool_results: list[ToolResultEntry] = []
@@ -67,18 +66,13 @@ class QuietUI:
         text = text.strip()
         if not text:
             return
-        if self._status is None:
-            self._status = self.console.status(text, spinner="dots")
-            self._status.__enter__()
-        else:
-            self._status.update(text)
+        if text == self._status_text:
+            return
+        self.console.print(f"[green]:[/] {text}")
         self._status_text = text
 
     def clear_status(self) -> None:
-        if self._status is not None:
-            self._status.__exit__(None, None, None)
-            self._status = None
-            self._status_text = ""
+        self._status_text = ""
 
     def get_tool_result(self, token: str) -> ToolResultEntry | None:
         if token == "last":
@@ -235,7 +229,7 @@ def _preview_lines(name: str, result: str, success: bool) -> list[str]:
         delegated = _delegated_task_preview(result)
         if delegated:
             return delegated
-        return lines[:8]
+        return [_compact_text(line, limit=120) for line in lines[:3]]
 
     if name == "bash":
         if _looks_like_listing(lines):

@@ -10,7 +10,7 @@
 
 ## 功能特性
 
-- 多 Provider API 支持：Anthropic、OpenAI、OpenAI 兼容接口，以及智谱 GLM 等兼容 Provider
+- 多 Provider API 支持：Anthropic、OpenAI、智谱 GLM、DeepSeek 和 Seed
 - 流式响应，支持 Markdown 终端渲染
 - 默认安静型终端 UI：阶段状态、紧凑工具卡片、按需展开完整结果
 - 工具调用循环：模型可以反复调用工具，直到任务完成
@@ -80,20 +80,11 @@ termpilot
 
 ```
 ? Select your LLM provider:
-  > OpenAI
-    Anthropic (Claude)
+  > Anthropic (Claude)
+    OpenAI
     Zhipu GLM
     DeepSeek
-    Qwen / DashScope
-    Moonshot / Kimi
-    SiliconFlow
-    OpenRouter
-    Groq
-    Together
-    Fireworks
-    Ollama (local)
-    vLLM (local)
-    OpenAI-compatible (custom)
+    Seed
 ```
 
 选择你的 Provider，输入 API Key，即可开始使用。
@@ -117,7 +108,7 @@ termpilot model
 }
 ```
 
-所有 Provider 均使用 OpenAI 兼容 API 格式。支持的 Provider：OpenAI、Anthropic、智谱 GLM、DeepSeek、Qwen/DashScope、Moonshot/Kimi、SiliconFlow、OpenRouter、Groq、Together、Fireworks、Ollama、vLLM，以及任何自定义 OpenAI 兼容接口。
+配置向导会刻意保持精简，只展示常用 Provider：Anthropic、OpenAI、智谱 GLM、DeepSeek 和 Seed。已有 OpenAI-compatible 配置仍可通过 `TERMPILOT_BASE_URL`、`TERMPILOT_API_KEY` 和 `TERMPILOT_MODEL` 手动配置。
 
 环境变量优先级高于 `settings.json`。
 
@@ -234,9 +225,12 @@ src/termpilot/
 - [docs/conventions.md](docs/conventions.md)：命名和组织约定
 - [docs/hooks.md](docs/hooks.md)：Hook 设计和行为
 - [docs/compact.md](docs/compact.md)：压缩策略
+- [docs/message-queue.md](docs/message-queue.md)：交互队列、drain loop、中断和 prompt 处理
 - [docs/mcp_skills.md](docs/mcp_skills.md)：MCP、Skills 和命令
 - [docs/task-tool.md](docs/task-tool.md)：任务管理、持久化和依赖图
+- [docs/task-delegation.md](docs/task-delegation.md)：任务委派与子代理路由
 - [docs/system_prompt_sections.md](docs/system_prompt_sections.md)：System Prompt 各 Section
+- [docs/messages_attachments.md](docs/messages_attachments.md)：消息格式和文件附件
 
 ## 开发状态
 

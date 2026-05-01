@@ -8,14 +8,11 @@
 3. 将 env 注入到 os.environ
 4. 后续创建 API 客户端时自动使用这些环境变量
 
-Python 版在此基础上额外支持显式 provider 选择：
-- anthropic
-- openai
-- openai_compatible
+Python 版在此基础上额外支持显式 provider 选择。
 
-并兼容常见第三方 OpenAI-compatible 平台的变量命名：
-Zhipu GLM / DeepSeek / Qwen(DashScope) / Moonshot / SiliconFlow /
-OpenRouter / Groq / Together / Fireworks / Ollama / vLLM 等。
+交互式配置向导只展示少量常用 provider：Anthropic、OpenAI、
+Zhipu GLM、DeepSeek、Seed。底层仍保留常见 OpenAI-compatible
+变量名兼容，避免已有配置立即失效。
 """
 
 from __future__ import annotations
@@ -27,26 +24,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from termpilot.prompt_utils import ask_with_esc
+
 logger = logging.getLogger(__name__)
-
-
-def _esc_ask(question) -> Any:
-    """Ask a questionary prompt with ESC to cancel."""
-    from prompt_toolkit.key_binding import KeyBindings
-    from prompt_toolkit.keys import Keys
-
-    bindings = KeyBindings()
-
-    @bindings.add(Keys.Escape, eager=True)
-    def _cancel(event):
-        event.app.exit(exception=KeyboardInterrupt, style="class:aborting")
-
-    kb = question.application.key_bindings
-    if hasattr(kb, "add"):
-        kb.add(Keys.Escape, eager=True)(_cancel)
-    elif hasattr(kb, "registries"):
-        kb.registries.append(bindings)
-    return question.ask()
 
 
 _PROVIDER_ALIASES = {
@@ -63,6 +43,10 @@ _PROVIDER_ALIASES = {
     "deepseek": "openai_compatible",
     "qwen": "openai_compatible",
     "dashscope": "openai_compatible",
+    "seed": "openai_compatible",
+    "doubao": "openai_compatible",
+    "volcengine": "openai_compatible",
+    "ark": "openai_compatible",
     "moonshot": "openai_compatible",
     "kimi": "openai_compatible",
     "siliconflow": "openai_compatible",
@@ -86,6 +70,20 @@ def _normalize_provider(provider: str | None) -> str:
     if not provider:
         return "anthropic"
     return _PROVIDER_ALIASES.get(provider.strip().lower(), "openai_compatible")
+
+
+def _raw_provider_for_lookup(provider: str | None = None) -> str:
+    """Return the unnormalized provider so compatible env vars can be ordered."""
+    if provider:
+        return str(provider).strip().lower()
+    settings = get_settings()
+    env = get_settings_env()
+    return str(
+        os.environ.get("TERMPILOT_PROVIDER")
+        or env.get("TERMPILOT_PROVIDER")
+        or settings.get("provider")
+        or ""
+    ).strip().lower()
 
 
 _SETTINGS_TEMPLATE = """\
@@ -120,72 +118,16 @@ _PROVIDERS: dict[str, dict[str, Any]] = {
     "DeepSeek": {
         "provider": "deepseek",
         "env_key": "DEEPSEEK_API_KEY",
-        "base_url": "https://api.deepseek.com/v1",
-        "default_model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com",
+        "default_model": "deepseek-v4-pro",
     },
-    "Qwen / DashScope": {
-        "provider": "qwen",
-        "env_key": "DASHSCOPE_API_KEY",
-        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "default_model": "qwen-plus",
-        "base_url_env_key": "DASHSCOPE_BASE_URL",
-        "model_env_key": "DASHSCOPE_MODEL",
-    },
-    "Moonshot / Kimi": {
-        "provider": "moonshot",
-        "env_key": "MOONSHOT_API_KEY",
-        "base_url": "https://api.moonshot.cn/v1",
-        "default_model": "moonshot-v1-8k",
-    },
-    "SiliconFlow": {
-        "provider": "siliconflow",
-        "env_key": "SILICONFLOW_API_KEY",
-        "base_url": "https://api.siliconflow.cn/v1",
-        "default_model": "Qwen/Qwen2.5-7B-Instruct",
-    },
-    "OpenRouter": {
-        "provider": "openrouter",
-        "env_key": "OPENROUTER_API_KEY",
-        "base_url": "https://openrouter.ai/api/v1",
-        "default_model": "openai/gpt-4o",
-    },
-    "Groq": {
-        "provider": "groq",
-        "env_key": "GROQ_API_KEY",
-        "base_url": "https://api.groq.com/openai/v1",
-        "default_model": "llama-3.3-70b-versatile",
-    },
-    "Together": {
-        "provider": "together",
-        "env_key": "TOGETHER_API_KEY",
-        "base_url": "https://api.together.xyz/v1",
-        "default_model": "meta-llama/Llama-3-70b-chat-hf",
-    },
-    "Fireworks": {
-        "provider": "fireworks",
-        "env_key": "FIREWORKS_API_KEY",
-        "base_url": "https://api.fireworks.ai/inference/v1",
-        "default_model": "accounts/fireworks/models/llama-v3p1-70b-chat",
-    },
-    "Ollama (local)": {
-        "provider": "ollama",
-        "env_key": None,
-        "base_url": "http://localhost:11434/v1",
-        "default_model": "llama3",
-    },
-    "vLLM (local)": {
-        "provider": "vllm",
-        "env_key": None,
-        "base_url": "http://localhost:8000/v1",
-        "default_model": "",
-    },
-    "OpenAI-compatible (custom)": {
-        "provider": "openai_compatible",
-        "env_key": "TERMPILOT_API_KEY",
-        "base_url": "",
-        "default_model": "",
-        "base_url_env_key": "TERMPILOT_BASE_URL",
-        "model_env_key": "TERMPILOT_MODEL",
+    "Seed": {
+        "provider": "seed",
+        "env_key": "ARK_API_KEY",
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "default_model": "doubao-seed-2-0-code-preview-260215",
+        "base_url_env_key": "ARK_BASE_URL",
+        "model_env_key": "ARK_MODEL",
     },
 }
 
@@ -206,6 +148,7 @@ _MODEL_PRESETS: dict[str, list[str]] = {
         "glm-4.5-air",
     ],
     "deepseek": [
+        "deepseek-v4-pro",
         "deepseek-chat",
         "deepseek-reasoner",
     ],
@@ -213,6 +156,13 @@ _MODEL_PRESETS: dict[str, list[str]] = {
         "qwen-plus",
         "qwen-max",
         "qwen-turbo",
+    ],
+    "seed": [
+        "doubao-seed-2-0-code-preview-260215",
+        "doubao-seed-2.0-pro",
+        "doubao-seed-2.0-lite",
+        "doubao-seed-code",
+        "ark-code-latest",
     ],
     "moonshot": [
         "moonshot-v1-8k",
@@ -246,6 +196,94 @@ _MODEL_PRESETS: dict[str, list[str]] = {
     "vllm": [],
     "openai_compatible": [],
 }
+
+
+_COMPAT_API_KEY_CANDIDATES: dict[str, list[str]] = {
+    "zhipu": ["ZHIPU_API_KEY"],
+    "glm": ["ZHIPU_API_KEY"],
+    "deepseek": ["DEEPSEEK_API_KEY"],
+    "qwen": ["DASHSCOPE_API_KEY"],
+    "dashscope": ["DASHSCOPE_API_KEY"],
+    "seed": ["ARK_API_KEY", "VOLCANO_ENGINE_API_KEY", "SEED_API_KEY"],
+    "doubao": ["ARK_API_KEY", "VOLCANO_ENGINE_API_KEY", "SEED_API_KEY"],
+    "volcengine": ["ARK_API_KEY", "VOLCANO_ENGINE_API_KEY", "SEED_API_KEY"],
+    "ark": ["ARK_API_KEY", "VOLCANO_ENGINE_API_KEY", "SEED_API_KEY"],
+    "moonshot": ["MOONSHOT_API_KEY"],
+    "kimi": ["MOONSHOT_API_KEY"],
+    "siliconflow": ["SILICONFLOW_API_KEY"],
+    "openrouter": ["OPENROUTER_API_KEY"],
+    "groq": ["GROQ_API_KEY"],
+    "together": ["TOGETHER_API_KEY"],
+    "fireworks": ["FIREWORKS_API_KEY"],
+    "ollama": ["OLLAMA_API_KEY"],
+    "vllm": ["VLLM_API_KEY"],
+}
+
+_COMPAT_BASE_URL_CANDIDATES: dict[str, list[str]] = {
+    "zhipu": ["ZHIPU_BASE_URL"],
+    "glm": ["ZHIPU_BASE_URL"],
+    "deepseek": ["DEEPSEEK_BASE_URL"],
+    "qwen": ["DASHSCOPE_BASE_URL"],
+    "dashscope": ["DASHSCOPE_BASE_URL"],
+    "seed": ["ARK_BASE_URL", "VOLCANO_ENGINE_BASE_URL", "SEED_BASE_URL"],
+    "doubao": ["ARK_BASE_URL", "VOLCANO_ENGINE_BASE_URL", "SEED_BASE_URL"],
+    "volcengine": ["ARK_BASE_URL", "VOLCANO_ENGINE_BASE_URL", "SEED_BASE_URL"],
+    "ark": ["ARK_BASE_URL", "VOLCANO_ENGINE_BASE_URL", "SEED_BASE_URL"],
+    "moonshot": ["MOONSHOT_BASE_URL"],
+    "kimi": ["MOONSHOT_BASE_URL"],
+    "siliconflow": ["SILICONFLOW_BASE_URL"],
+    "openrouter": ["OPENROUTER_BASE_URL"],
+    "groq": ["GROQ_BASE_URL"],
+    "together": ["TOGETHER_BASE_URL"],
+    "fireworks": ["FIREWORKS_BASE_URL"],
+    "ollama": ["OLLAMA_BASE_URL"],
+    "vllm": ["VLLM_BASE_URL"],
+}
+
+_COMPAT_MODEL_CANDIDATES: dict[str, list[str]] = {
+    "zhipu": ["ZHIPU_MODEL"],
+    "glm": ["ZHIPU_MODEL"],
+    "deepseek": ["DEEPSEEK_MODEL"],
+    "qwen": ["DASHSCOPE_MODEL"],
+    "dashscope": ["DASHSCOPE_MODEL"],
+    "seed": ["ARK_MODEL", "VOLCANO_ENGINE_MODEL", "SEED_MODEL"],
+    "doubao": ["ARK_MODEL", "VOLCANO_ENGINE_MODEL", "SEED_MODEL"],
+    "volcengine": ["ARK_MODEL", "VOLCANO_ENGINE_MODEL", "SEED_MODEL"],
+    "ark": ["ARK_MODEL", "VOLCANO_ENGINE_MODEL", "SEED_MODEL"],
+    "moonshot": ["MOONSHOT_MODEL"],
+    "kimi": ["MOONSHOT_MODEL"],
+    "siliconflow": ["SILICONFLOW_MODEL"],
+    "openrouter": ["OPENROUTER_MODEL"],
+    "groq": ["GROQ_MODEL"],
+    "together": ["TOGETHER_MODEL"],
+    "fireworks": ["FIREWORKS_MODEL"],
+    "ollama": ["OLLAMA_MODEL"],
+    "vllm": ["VLLM_MODEL"],
+}
+
+
+def _ordered_compat_env_keys(raw_provider: str, mapping: dict[str, list[str]], common: list[str]) -> list[str]:
+    """Prefer env keys for the selected compatible provider, then fall back."""
+    ordered: list[str] = []
+    for key in mapping.get(raw_provider, []):
+        if key not in ordered:
+            ordered.append(key)
+    for key in common:
+        if key not in ordered:
+            ordered.append(key)
+    for keys in mapping.values():
+        for key in keys:
+            if key not in ordered:
+                ordered.append(key)
+    return ordered
+
+
+def _env_candidates(keys: list[str], env: dict[str, Any]) -> list[tuple[str, str | None]]:
+    candidates: list[tuple[str, str | None]] = []
+    for key in keys:
+        candidates.append((f"env:{key}", os.environ.get(key)))
+        candidates.append((f"settings:{key}", env.get(key)))
+    return candidates
 
 
 def get_config_home() -> Path:
@@ -303,7 +341,7 @@ def run_setup_wizard() -> None:
     # 读取已有配置 → 预填值
     existing_env = get_settings_env()
 
-    choice = _esc_ask(questionary.select(
+    choice = ask_with_esc(questionary.select(
         "Select your LLM provider:",
         choices=list(_PROVIDERS.keys()),
         default=current_label,
@@ -318,7 +356,7 @@ def run_setup_wizard() -> None:
     env_key = info.get("env_key")
     if env_key:
         existing_key = existing_env.get(env_key, "")
-        api_key = _esc_ask(questionary.text(
+        api_key = ask_with_esc(questionary.text(
             f"Enter your {env_key}:",
             default=existing_key,
         ))
@@ -332,7 +370,7 @@ def run_setup_wizard() -> None:
         existing_url = existing_env.get(
             info.get("base_url_env_key") or f"{info['provider'].upper()}_BASE_URL", ""
         )
-        base_url = _esc_ask(questionary.text(
+        base_url = ask_with_esc(questionary.text(
             "Enter base URL (e.g. https://api.example.com/v1):",
             default=existing_url,
         )) or ""
@@ -342,7 +380,7 @@ def run_setup_wizard() -> None:
     existing_model = existing_env.get(model_env_key, "")
     default_model = existing_model or info.get("default_model", "")
     if not default_model:
-        default_model = _esc_ask(questionary.text(
+        default_model = ask_with_esc(questionary.text(
             "Enter model name:",
         )) or ""
 
@@ -484,7 +522,7 @@ def run_model_picker() -> dict[str, Any]:
 
     choices.append(questionary.Choice("Custom model…", value="__custom__"))
 
-    choice = _esc_ask(questionary.select(
+    choice = ask_with_esc(questionary.select(
         f"Select model for {provider_label or raw_provider}:",
         choices=choices,
         default=current_model,
@@ -495,7 +533,7 @@ def run_model_picker() -> dict[str, Any]:
         return {"changed": False, "model": current_model, "provider": raw_provider}
 
     if choice == "__custom__":
-        custom_model = _esc_ask(questionary.text(
+        custom_model = ask_with_esc(questionary.text(
             "Enter model name:",
             default=current_model,
         ))
@@ -610,7 +648,8 @@ def get_effective_api_key(provider: str | None = None) -> str | None:
 
     Python 版按 provider 读取不同变量，并保留常见别名兼容。
     """
-    provider = _normalize_provider(provider or get_effective_provider())
+    raw_provider = _raw_provider_for_lookup(provider)
+    provider = _normalize_provider(raw_provider or provider or get_effective_provider())
     env = get_settings_env()
     if provider == "anthropic":
         candidates = [
@@ -627,34 +666,12 @@ def get_effective_api_key(provider: str | None = None) -> str | None:
             ("settings:TERMPILOT_API_KEY", env.get("TERMPILOT_API_KEY")),
         ]
     else:
-        candidates = [
-            ("env:TERMPILOT_API_KEY", os.environ.get("TERMPILOT_API_KEY")),
-            ("settings:TERMPILOT_API_KEY", env.get("TERMPILOT_API_KEY")),
-            ("env:OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY")),
-            ("settings:OPENAI_API_KEY", env.get("OPENAI_API_KEY")),
-            ("env:ZHIPU_API_KEY", os.environ.get("ZHIPU_API_KEY")),
-            ("settings:ZHIPU_API_KEY", env.get("ZHIPU_API_KEY")),
-            ("env:DEEPSEEK_API_KEY", os.environ.get("DEEPSEEK_API_KEY")),
-            ("settings:DEEPSEEK_API_KEY", env.get("DEEPSEEK_API_KEY")),
-            ("env:DASHSCOPE_API_KEY", os.environ.get("DASHSCOPE_API_KEY")),
-            ("settings:DASHSCOPE_API_KEY", env.get("DASHSCOPE_API_KEY")),
-            ("env:MOONSHOT_API_KEY", os.environ.get("MOONSHOT_API_KEY")),
-            ("settings:MOONSHOT_API_KEY", env.get("MOONSHOT_API_KEY")),
-            ("env:SILICONFLOW_API_KEY", os.environ.get("SILICONFLOW_API_KEY")),
-            ("settings:SILICONFLOW_API_KEY", env.get("SILICONFLOW_API_KEY")),
-            ("env:OPENROUTER_API_KEY", os.environ.get("OPENROUTER_API_KEY")),
-            ("settings:OPENROUTER_API_KEY", env.get("OPENROUTER_API_KEY")),
-            ("env:GROQ_API_KEY", os.environ.get("GROQ_API_KEY")),
-            ("settings:GROQ_API_KEY", env.get("GROQ_API_KEY")),
-            ("env:TOGETHER_API_KEY", os.environ.get("TOGETHER_API_KEY")),
-            ("settings:TOGETHER_API_KEY", env.get("TOGETHER_API_KEY")),
-            ("env:FIREWORKS_API_KEY", os.environ.get("FIREWORKS_API_KEY")),
-            ("settings:FIREWORKS_API_KEY", env.get("FIREWORKS_API_KEY")),
-            ("env:OLLAMA_API_KEY", os.environ.get("OLLAMA_API_KEY")),
-            ("settings:OLLAMA_API_KEY", env.get("OLLAMA_API_KEY")),
-            ("env:ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY")),
-            ("settings:ANTHROPIC_API_KEY", env.get("ANTHROPIC_API_KEY")),
-        ]
+        keys = _ordered_compat_env_keys(
+            raw_provider,
+            _COMPAT_API_KEY_CANDIDATES,
+            ["TERMPILOT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+        )
+        candidates = _env_candidates(keys, env)
 
     source = None
     key = None
@@ -677,7 +694,8 @@ def get_effective_base_url(provider: str | None = None) -> str | None:
     支持 provider 专属变量、通用变量和 settings.json 顶层字段。
     对 openai_compatible 来说，base URL 通常是必需的。
     """
-    provider = _normalize_provider(provider or get_effective_provider())
+    raw_provider = _raw_provider_for_lookup(provider)
+    provider = _normalize_provider(raw_provider or provider or get_effective_provider())
     settings = get_settings()
     env = get_settings_env()
 
@@ -695,35 +713,12 @@ def get_effective_base_url(provider: str | None = None) -> str | None:
             env.get("TERMPILOT_BASE_URL"),
             settings.get("base_url"),
         )
-    return _first_nonempty(
-        os.environ.get("TERMPILOT_BASE_URL"),
-        env.get("TERMPILOT_BASE_URL"),
-        os.environ.get("OPENAI_BASE_URL"),
-        env.get("OPENAI_BASE_URL"),
-        os.environ.get("ZHIPU_BASE_URL"),
-        env.get("ZHIPU_BASE_URL"),
-        os.environ.get("DEEPSEEK_BASE_URL"),
-        env.get("DEEPSEEK_BASE_URL"),
-        os.environ.get("DASHSCOPE_BASE_URL"),
-        env.get("DASHSCOPE_BASE_URL"),
-        os.environ.get("MOONSHOT_BASE_URL"),
-        env.get("MOONSHOT_BASE_URL"),
-        os.environ.get("SILICONFLOW_BASE_URL"),
-        env.get("SILICONFLOW_BASE_URL"),
-        os.environ.get("OPENROUTER_BASE_URL"),
-        env.get("OPENROUTER_BASE_URL"),
-        os.environ.get("GROQ_BASE_URL"),
-        env.get("GROQ_BASE_URL"),
-        os.environ.get("TOGETHER_BASE_URL"),
-        env.get("TOGETHER_BASE_URL"),
-        os.environ.get("FIREWORKS_BASE_URL"),
-        env.get("FIREWORKS_BASE_URL"),
-        os.environ.get("OLLAMA_BASE_URL"),
-        env.get("OLLAMA_BASE_URL"),
-        os.environ.get("ANTHROPIC_BASE_URL"),
-        env.get("ANTHROPIC_BASE_URL"),
-        settings.get("base_url"),
+    keys = _ordered_compat_env_keys(
+        raw_provider,
+        _COMPAT_BASE_URL_CANDIDATES,
+        ["TERMPILOT_BASE_URL", "OPENAI_BASE_URL", "ANTHROPIC_BASE_URL"],
     )
+    return _first_nonempty(*[value for _, value in _env_candidates(keys, env)], settings.get("base_url"))
 
 
 def get_effective_model(default: str = "gpt-4o", provider: str | None = None) -> str:
@@ -731,7 +726,8 @@ def get_effective_model(default: str = "gpt-4o", provider: str | None = None) ->
 
     会按 provider 读取最自然的模型变量，同时保留旧变量名兼容。
     """
-    provider = _normalize_provider(provider or get_effective_provider())
+    raw_provider = _raw_provider_for_lookup(provider)
+    provider = _normalize_provider(raw_provider or provider or get_effective_provider())
     settings = get_settings()
     env = get_settings_env()
     if provider == "anthropic":
@@ -744,36 +740,12 @@ def get_effective_model(default: str = "gpt-4o", provider: str | None = None) ->
             default,
         )
     else:
-        model = _first_nonempty(
-            os.environ.get("OPENAI_MODEL"),
-            env.get("OPENAI_MODEL"),
-            os.environ.get("TERMPILOT_MODEL"),
-            env.get("TERMPILOT_MODEL"),
-            os.environ.get("ZHIPU_MODEL"),
-            env.get("ZHIPU_MODEL"),
-            os.environ.get("DEEPSEEK_MODEL"),
-            env.get("DEEPSEEK_MODEL"),
-            os.environ.get("DASHSCOPE_MODEL"),
-            env.get("DASHSCOPE_MODEL"),
-            os.environ.get("MOONSHOT_MODEL"),
-            env.get("MOONSHOT_MODEL"),
-            os.environ.get("SILICONFLOW_MODEL"),
-            env.get("SILICONFLOW_MODEL"),
-            os.environ.get("OPENROUTER_MODEL"),
-            env.get("OPENROUTER_MODEL"),
-            os.environ.get("GROQ_MODEL"),
-            env.get("GROQ_MODEL"),
-            os.environ.get("TOGETHER_MODEL"),
-            env.get("TOGETHER_MODEL"),
-            os.environ.get("FIREWORKS_MODEL"),
-            env.get("FIREWORKS_MODEL"),
-            os.environ.get("OLLAMA_MODEL"),
-            env.get("OLLAMA_MODEL"),
-            os.environ.get("ANTHROPIC_MODEL"),
-            env.get("ANTHROPIC_MODEL"),
-            settings.get("model"),
-            default,
+        keys = _ordered_compat_env_keys(
+            raw_provider,
+            _COMPAT_MODEL_CANDIDATES,
+            ["OPENAI_MODEL", "TERMPILOT_MODEL", "ANTHROPIC_MODEL"],
         )
+        model = _first_nonempty(*[value for _, value in _env_candidates(keys, env)], settings.get("model"), default)
     logger.debug("effective model: %s (default=%s)", model, default)
     return model
 

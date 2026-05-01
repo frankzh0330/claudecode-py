@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import builtins
 from typing import Any
 
 
@@ -124,7 +125,8 @@ class AskUserQuestionTool:
             try:
                 if multi_select:
                     console.print("[dim](多选，用逗号分隔，如 1,3)[/]")
-                    choice = console.input("[bold green]选择: [/]").strip()
+                    console.file.flush()
+                    choice = builtins.input("选择: ").strip()
                     selected = []
                     for c in choice.split(","):
                         c = c.strip()
@@ -134,7 +136,8 @@ class AskUserQuestionTool:
                                 selected.append(options[idx]["label"])
                     answers[header] = selected
                 else:
-                    choice = console.input("[bold green]选择 [1-{}] (或输入自定义): [/]".format(len(options))).strip()
+                    console.file.flush()
+                    choice = builtins.input(f"选择 [1-{len(options)}] (或输入自定义): ").strip()
                     if choice.isdigit():
                         idx = int(choice) - 1
                         if 0 <= idx < len(options):
