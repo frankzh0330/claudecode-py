@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 import click
@@ -516,152 +515,229 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
         bottom_toolbar=_mode_toolbar,
     )
 
-    while True:
-        try:
-            # Show mode in prompt prefix if not default
-            if permission_context.mode.value != "default":
-                mode_tags = {"plan": "[plan]", "acceptEdits": "[edits]"}
-                tag = mode_tags.get(permission_context.mode.value, "")
-                pt_session.message = [("class:prompt", f"{tag}> ")]
-            else:
-                pt_session.message = [("class:prompt", "> ")]
-            console.print()
-            user_input = await pt_session.prompt_async()
+    # ── 消息队列 + drain 模式 ──
+    from termpilot.queue import QueuedCommand, Priority, get_main_queue
 
-            # 清理终端输入中可能出现的 Unicode 代理字符
-            user_input = user_input.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
+    queue = get_main_queue()
+    # 共享状态
+    exit_flag = asyncio.Event()
 
-            if not user_input.strip():
-                continue
+    def _is_main_thread_command(cmd: QueuedCommand) -> bool:
+        """主线程只处理发给主线程的队列命令。"""
+        return cmd.agent_id == ""
 
-            # ── Slash 命令处理 ──
-            parsed = parse_slash_command(user_input)
-            if parsed:
-                cmd_name, cmd_args = parsed
-                logger.debug("slash command: /%s %s", cmd_name, cmd_args[:50])
-                cmd_context = {
-                    "messages": messages,
-                    "system_prompt": system_prompt,
-                    "client": client,
-                    "model": model,
-                    "mcp_manager": mcp_manager,
-                    "ui": ui,
-                    "client_format": client_format,
-                    "refresh_runtime": refresh_runtime,
-                    "storage": storage,
-                }
-                result = await dispatch_command(cmd_name, cmd_args, cmd_context)
-                logger.debug("command result: exit_repl=%s, should_query=%s, output=%d chars",
-                             result.exit_repl, result.should_query, len(result.output))
-
-                if result.exit_repl:
-                    console.print("[dim]再见！[/]")
-                    break
-
-                if result.output:
-                    console.print()
-                    console.print(Markdown(result.output))
-
-                if result.new_messages is not None:
-                    if len(result.new_messages) == 0:
-                        # /clear：清除消息
-                        messages.clear()
-                        console.print("[dim]对话已清除[/]")
-                    else:
-                        messages = result.new_messages
-
-                if result.should_query:
-                    # 命令要求发送给模型（skill 回退、/compact 后的摘要等）
-                    # 将 skill prompt 作为用户消息发送，让 LLM 按指令执行
-                    messages.append(create_user_message(result.output))
-                    storage.record_user_message(result.output)
-                    logger.debug("should_query: sending skill/command output to API, %d messages", len(messages))
-
-                    try:
-                        full_response = await _stream_response_with_tools(
-                            client, model, system_prompt, messages, tools, storage,
-                            permission_context=permission_context,
-                            session_id=storage.session_id or "",
-                            cost_tracker=cost_tracker,
-                            ui=ui,
-                            client_format=client_format,
-                        )
-                    except Exception as api_exc:
-                        _print_connection_error(api_exc)
-                        console.print()
-                        console.rule()
-                        continue
-                    messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
-                    storage.record_assistant_message(full_response)
-
-                    # Stop Hook
-                    await dispatch_hooks(
-                        event=HookEvent.STOP,
-                        session_id=storage.session_id or "",
-                    )
-
+    async def _input_collector() -> None:
+        """收集用户输入，只负责入队，不直接修改会话状态。"""
+        while not exit_flag.is_set():
+            try:
+                if permission_context.mode.value != "default":
+                    mode_tags = {"plan": "[plan]", "acceptEdits": "[edits]"}
+                    tag = mode_tags.get(permission_context.mode.value, "")
+                    pt_session.message = [("class:prompt", f"{tag}> ")]
+                else:
+                    pt_session.message = [("class:prompt", "> ")]
                 console.print()
-                console.rule()
+                user_input = await pt_session.prompt_async()
+
+                user_input = user_input.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="replace")
+
+                if not user_input.strip():
+                    continue
+
+                # ── Slash 命令：入队，由 drain loop 串行处理 ──
+                parsed = parse_slash_command(user_input)
+                if parsed:
+                    cmd_name, cmd_args = parsed
+                    queue.enqueue(QueuedCommand(
+                        mode="slash_command",
+                        value={"name": cmd_name, "args": cmd_args},
+                        priority=Priority.NEXT,
+                        origin="user",
+                    ))
+                    continue
+
+                # ── 普通输入：入队 ──
+                queue.enqueue(QueuedCommand(
+                    mode="prompt",
+                    value=user_input,
+                    priority=Priority.NEXT,
+                    origin="user",
+                ))
+
+            except KeyboardInterrupt:
+                console.print("\n[dim]再见！[/]")
+                exit_flag.set()
+                return
+
+    async def _drain_loop() -> None:
+        """主处理循环：dequeue → 处理 → 检查后台 agent。"""
+        nonlocal title_generated
+
+        while not exit_flag.is_set():
+            # 1. 等待下一个命令
+            cmd = await queue.dequeue(timeout=0.5, filter_fn=_is_main_thread_command)
+            if cmd is None:
                 continue
 
-            # ── 正常对话处理 ──
-            logger.debug("user input: %s", user_input[:100])
+            # 2. 按 mode 分发
+            if cmd.mode == "prompt":
+                await _handle_prompt(cmd)
+            elif cmd.mode == "slash_command":
+                await _handle_slash_command(cmd)
+            elif cmd.mode == "task_notification":
+                _handle_task_notification(cmd)
 
-            # UserPromptSubmit Hook
-            hook_results = await dispatch_hooks(
-                event=HookEvent.USER_PROMPT_SUBMIT,
+            # 3. TaskListWatcher：enqueue LATER 优先级
+            if cmd.mode == "prompt":
+                from termpilot.tools.task import get_next_available_task, _save_tasks_to_disk
+                next_task = get_next_available_task()
+                if next_task:
+                    next_task.owner = "main"
+                    next_task.status = "in_progress"
+                    _save_tasks_to_disk()
+                    console.print(f"\n[dim]Auto-picking task #{next_task.id}: {next_task.subject}[/]")
+                    queue.enqueue(QueuedCommand(
+                        mode="prompt",
+                        value=(
+                            f"Continue with task #{next_task.id}: {next_task.subject}\n"
+                            f"{next_task.description}"
+                        ),
+                        priority=Priority.LATER,
+                        origin="task-watcher",
+                    ))
+
+    async def _handle_prompt(cmd: QueuedCommand) -> None:
+        """处理 prompt 命令：hook → 附件 → API 调用。"""
+        nonlocal title_generated
+        user_input = cmd.value
+
+        # UserPromptSubmit Hook
+        hook_results = await dispatch_hooks(
+            event=HookEvent.USER_PROMPT_SUBMIT,
+            session_id=storage.session_id or "",
+            prompt=user_input,
+        )
+        blocked = False
+        for hr in hook_results:
+            if hr.exit_code == 2:
+                console.print(f"[yellow]Hook blocked prompt: {hr.stderr or 'blocked'}[/]")
+                blocked = True
+                break
+        if blocked:
+            return
+
+        hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
+        effective_input = user_input
+        if hook_feedback:
+            effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(
+                hook_feedback) + "\n</user-prompt-submit-hook>"
+
+        attachment_blocks = process_attachments(effective_input)
+        if attachment_blocks:
+            content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
+            messages.append(create_user_message(content_blocks))
+        else:
+            messages.append(create_user_message(effective_input))
+        storage.record_user_message(user_input)
+
+        if permission_context.mode.value == "plan":
+            messages.append({
+                "role": "user",
+                "content": (
+                    "<system-reminder>"
+                    "You are in plan mode (read-only). Do NOT attempt to write, edit, "
+                    "or modify any files. Only use-only tools: read_file, glob, grep, "
+                    "bash (read-only only). When ready, call exit_plan_mode with your plan."
+                    "</system-reminder>"
+                ),
+            })
+
+        logger.debug("sending to API: %d messages in context", len(messages))
+
+        try:
+            full_response = await _stream_response_with_tools(
+                client, model, system_prompt, messages, tools, storage,
+                permission_context=permission_context,
                 session_id=storage.session_id or "",
-                prompt=user_input,
+                cost_tracker=cost_tracker,
+                ui=ui,
+                client_format=client_format,
             )
-            # 检查是否被 hook 阻断
-            blocked = False
-            for hr in hook_results:
-                if hr.exit_code == 2:
-                    console.print(f"[yellow]Hook blocked prompt: {hr.stderr or 'blocked'}[/]")
-                    blocked = True
-                    break
-            if blocked:
-                continue
-            # 注入 hook 反馈
-            hook_feedback = [hr.stdout for hr in hook_results if hr.exit_code == 0 and hr.stdout.strip()]
-            effective_input = user_input
-            if hook_feedback:
-                effective_input += "\n\n<user-prompt-submit-hook>\n" + "\n".join(
-                    hook_feedback) + "\n</user-prompt-submit-hook>"
+        except Exception as api_exc:
+            _print_connection_error(api_exc)
+            return
 
-            # 处理文件附件（@file 引用）
-            attachment_blocks = process_attachments(effective_input)
-            logger.debug("attachments: %d blocks", len(attachment_blocks))
-            if attachment_blocks:
-                # 将附件和文本一起作为 content blocks
-                content_blocks = [{"type": "text", "text": effective_input}] + attachment_blocks
-                messages.append(create_user_message(content_blocks))
+        messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
+        storage.record_assistant_message(full_response)
+        logger.debug("response received: %d chars, total messages: %d", len(full_response), len(messages))
+
+        if not title_generated and len(messages) >= 2:
+            from termpilot.session import generate_session_title
+            title = await generate_session_title(messages, client, model, client_format)
+            if title:
+                storage.save_metadata("custom-title", title)
+                logger.debug("session title generated: %s", title)
+            title_generated = True
+
+        await dispatch_hooks(
+            event=HookEvent.STOP,
+            session_id=storage.session_id or "",
+        )
+
+        console.print()
+        console.rule()
+
+    async def _handle_slash_command(cmd: QueuedCommand) -> None:
+        """串行处理 slash command，避免与正在运行的 turn 并发修改上下文。"""
+        value = cmd.value if isinstance(cmd.value, dict) else {}
+        cmd_name = str(value.get("name", ""))
+        cmd_args = str(value.get("args", ""))
+        if not cmd_name:
+            return
+
+        logger.debug("slash command: /%s %s", cmd_name, cmd_args[:50])
+        cmd_context = {
+            "messages": messages,
+            "system_prompt": system_prompt,
+            "client": client,
+            "model": model,
+            "mcp_manager": mcp_manager,
+            "ui": ui,
+            "client_format": client_format,
+            "refresh_runtime": refresh_runtime,
+            "storage": storage,
+        }
+        result = await dispatch_command(cmd_name, cmd_args, cmd_context)
+        logger.debug(
+            "command result: exit_repl=%s, should_query=%s, output=%d chars",
+            result.exit_repl,
+            result.should_query,
+            len(result.output),
+        )
+
+        if result.exit_repl:
+            console.print("[dim]再见！[/]")
+            exit_flag.set()
+            return
+
+        if result.output:
+            console.print()
+            console.print(Markdown(result.output))
+
+        if result.new_messages is not None:
+            if len(result.new_messages) == 0:
+                messages.clear()
+                console.print("[dim]对话已清除[/]")
             else:
-                messages.append(create_user_message(effective_input))
-            storage.record_user_message(user_input)
+                messages[:] = result.new_messages
 
-            # Plan mode: inject reminder so model self-restricts instead of
-            # attempting writes and getting blocked by the permission system.
-            if permission_context.mode.value == "plan":
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "<system-reminder>"
-                        "You are in plan mode (read-only). Do NOT attempt to write, edit, "
-                        "or modify any files. Only use read-only tools: read_file, glob, grep, "
-                        "bash (read-only only). When ready, call exit_plan_mode with your plan."
-                        "</system-reminder>"
-                    ),
-                })
-
-            logger.debug("sending to API: %d messages in context", len(messages))
-
-            effective_permission = permission_context
-
+        if result.should_query:
+            messages.append(create_user_message(result.output))
+            storage.record_user_message(result.output)
             try:
                 full_response = await _stream_response_with_tools(
                     client, model, system_prompt, messages, tools, storage,
-                    permission_context=effective_permission,
+                    permission_context=permission_context,
                     session_id=storage.session_id or "",
                     cost_tracker=cost_tracker,
                     ui=ui,
@@ -669,65 +745,52 @@ async def _async_interactive(model: str, resume_session_id: str | None = None) -
                 )
             except Exception as api_exc:
                 _print_connection_error(api_exc)
-                continue
-
-            messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
-            storage.record_assistant_message(full_response)
-            logger.debug("response received: %d chars, total messages: %d", len(full_response), len(messages))
-
-            # TaskListWatcher: 空闲时自动取下一个可执行任务
-            from termpilot.tools.task import get_next_available_task, _save_tasks_to_disk
-            next_task = get_next_available_task()
-            if next_task:
-                next_task.owner = "main"
-                next_task.status = "in_progress"
-                _save_tasks_to_disk()
-                console.print(f"\n[dim]Auto-picking task #{next_task.id}: {next_task.subject}[/]")
-                task_prompt = (
-                    f"Continue with task #{next_task.id}: {next_task.subject}\n"
-                    f"{next_task.description}"
+            else:
+                messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
+                storage.record_assistant_message(full_response)
+                await dispatch_hooks(
+                    event=HookEvent.STOP,
+                    session_id=storage.session_id or "",
                 )
-                messages.append(create_user_message(task_prompt))
-                storage.record_user_message(task_prompt)
-                try:
-                    full_response = await _stream_response_with_tools(
-                        client, model, system_prompt, messages, tools, storage,
-                        permission_context=permission_context,
-                        session_id=storage.session_id or "",
-                        cost_tracker=cost_tracker,
-                        ui=ui,
-                        client_format=client_format,
-                    )
-                except Exception as api_exc:
-                    _print_connection_error(api_exc)
-                else:
-                    messages.append({**create_assistant_message(full_response), "_timestamp": time.time()})
-                    storage.record_assistant_message(full_response)
-                console.print()
-                console.rule()
-                continue
 
-            # 首轮对话后生成会话标题
-            if not title_generated and len(messages) >= 2:
-                from termpilot.session import generate_session_title
-                title = await generate_session_title(messages, client, model, client_format)
-                if title:
-                    storage.save_metadata("custom-title", title)
-                    logger.debug("session title generated: %s", title)
-                title_generated = True
+        console.print()
+        console.rule()
 
-            # Stop Hook
-            await dispatch_hooks(
-                event=HookEvent.STOP,
-                session_id=storage.session_id or "",
+    def _handle_task_notification(cmd: QueuedCommand) -> None:
+        """处理后台子 agent 完成通知。"""
+        data = cmd.value if isinstance(cmd.value, dict) else {}
+        agent_id = data.get("agent_id", "?")
+        subagent_type = data.get("subagent_type", "agent")
+        status = data.get("status", "unknown")
+
+        if status == "completed":
+            summary = str(data.get("summary", ""))
+            result_path = str(data.get("result_path", ""))
+            original_size = data.get("original_size", 0)
+            console.print(f"\n[green]Agent {subagent_type} ({agent_id}) completed[/]")
+            if summary:
+                console.print(Markdown(summary))
+            if result_path:
+                console.print(f"[dim]Full result saved to: {result_path}[/]")
+            handoff = (
+                f"[Background agent {subagent_type}/{agent_id} completed]\n"
+                f"Summary:\n{summary or '(no summary)'}\n\n"
+                f"Full result path: {result_path or '(not saved)'}\n"
+                f"Original size: {original_size} characters\n"
+                "Use read_file on the result path if more detail is needed."
             )
+            messages.append(create_assistant_message(handoff))
+            storage.record_assistant_message(handoff)
+        else:
+            error = data.get("error", "unknown error")
+            console.print(f"\n[red]Agent {subagent_type} ({agent_id}) failed: {error}[/]")
 
-            console.print()
-            console.rule()
-
-        except KeyboardInterrupt:
-            console.print("\n[dim]再见！[/]")
-            break
+    # ── 启动 collector + drain 并发运行 ──
+    await asyncio.gather(
+        _input_collector(),
+        _drain_loop(),
+        return_exceptions=True,
+    )
 
     # 显示费用汇总
     if cost_tracker.get_total_cost() > 0:
