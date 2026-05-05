@@ -39,6 +39,7 @@
 | 文件搜索 | `glob` | 使用 glob 模式搜索文件 | ✅ | ❌ |
 | 内容搜索 | `grep` | 使用正则表达式搜索文件内容 | ✅ | ❌ |
 | 子代理 | `agent` | 将任务委派给 Explore、Plan、Verification、general-purpose、自定义代理，或一次委派最多 3 个独立任务 | ✅ | ❌ |
+| Agent runtime | `agent_send`, `agent_task_list`, `agent_task_get` | 继续已有 AgentTask transcript，并查看持久化子代理 runtime records | 混合 | ❌ |
 | 用户提问 | `ask_user_question` | 向用户提出一个聚焦的后续问题 | ✅ | ❌ |
 | 任务管理 | `task_create`, `task_update`, `task_list`, `task_get` | 用 todo 风格任务追踪复杂工作的进度和依赖关系 | ✅ | ❌ |
 | 规划模式 | `enter_plan_mode`, `exit_plan_mode` | 进入或退出规划模式 | ✅ | ❌ |
@@ -145,6 +146,8 @@ termpilot -s <session-id>
 `agent` 工具将工作委派给在独立上下文中运行的子代理。每个子代理拥有自己的 system prompt 和工具集，可以调用工具直到任务完成，然后把最终总结返回给主代理。
 
 TermPilot 保留公开工具名 `agent`，但语义更接近 `delegate_task`：用 `Plan` 处理实现方案，用 `Explore` 处理大范围代码理解，用 `Verification` 处理检查和测试，用 `general-purpose` 处理复杂自主执行。如果存在多个独立方向，模型可以传入 `tasks` 数组，一次委派最多 3 个子任务。当前批量委派是串行执行，以保持 UI、权限和结果顺序可预测。
+
+每个被 spawn 的子代理也会注册为持久化 `AgentTask`，拥有 `agent_id`、状态、transcript 路径和结果路径。`agent_send` 可以继续已有本地 AgentTask transcript，`agent_task_list` 和 `agent_task_get` 用于查看 runtime records。remote AgentTask 目前只是后续扩展点，当前只实现本地 adapter。
 
 | 类型 | 说明 |
 |------|------|

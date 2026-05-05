@@ -39,6 +39,7 @@ It is already usable for day-to-day coding tasks and continues to evolve toward 
 | File search | `glob` | Search files using glob patterns | ✅ | ❌ |
 | Content search | `grep` | Search file contents with regular expressions | ✅ | ❌ |
 | Sub-agent | `agent` | Delegate work to Explore, Plan, Verification, general-purpose, custom agents, or a batch of up to 3 independent tasks | ✅ | ❌ |
+| Agent runtime | `agent_send`, `agent_task_list`, `agent_task_get` | Continue existing AgentTask transcripts and inspect persistent sub-agent runtime records | Mixed | ❌ |
 | Ask user | `ask_user_question` | Ask the user a focused follow-up question | ✅ | ❌ |
 | Tasks | `task_create`, `task_update`, `task_list`, `task_get` | Track complex work as todo-style tasks with progress and dependencies | ✅ | ❌ |
 | Plan mode | `enter_plan_mode`, `exit_plan_mode` | Switch into or out of planning mode | ✅ | ❌ |
@@ -145,6 +146,8 @@ termpilot -s <session-id>
 The `agent` tool delegates work to sub-agents that run in an isolated context with their own system prompt and tool set. Sub-agents can call tools until the task is complete, then return a final summary to the main agent.
 
 TermPilot keeps the public tool name `agent`, but its intended semantics are closer to `delegate_task`: use `Plan` for implementation strategy, `Explore` for broad codebase understanding, `Verification` for checks and tests, and `general-purpose` for complex autonomous execution. For multiple independent directions, the model can pass a `tasks` array and delegate up to 3 sub-agents in one call. Batch delegation currently runs serially for predictable UI, permission, and result ordering.
+
+Each spawned sub-agent is also registered as a persistent `AgentTask` with an `agent_id`, status, transcript path, and result path. The `agent_send` tool can continue an existing local AgentTask transcript, while `agent_task_list` and `agent_task_get` expose the runtime records for inspection. Remote AgentTask execution is represented as a future extension point, but only the local adapter is implemented today.
 
 | Type | Description |
 |------|-------------|

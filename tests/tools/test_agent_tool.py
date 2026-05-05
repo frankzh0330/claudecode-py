@@ -4,7 +4,28 @@ import json
 
 import pytest
 
-from termpilot.tools.agent import AgentTool, MAX_BATCH_TASKS
+import termpilot.agent_tasks as agent_tasks
+from termpilot.agent_tasks import (
+    create_agent_task,
+    get_agent_task,
+    list_agent_tasks,
+    load_agent_messages,
+    reset_agent_tasks,
+    update_agent_task,
+)
+from termpilot.tools.agent import (
+    AgentTool, AgentSendTool, AgentTaskGetTool, AgentTaskListTool, MAX_BATCH_TASKS,
+)
+
+
+@pytest.fixture(autouse=True)
+def clean_agent_runtime(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "agent-runtime"
+    runtime_dir.mkdir()
+    monkeypatch.setattr(agent_tasks, "_runtime_dir", lambda: runtime_dir)
+    reset_agent_tasks()
+    yield
+    reset_agent_tasks()
 
 
 class TestAgentToolSchema:
@@ -27,6 +48,8 @@ class TestAgentToolSchema:
         assert "Explore" in description
         assert "Verification" in description
         assert "one Explore task per file/module" in description
+        assert "AgentTask" in description
+        assert "agent_send" in description
 
     def test_builtin_agent_prompts_keep_termpilot_framing(self):
         from termpilot.tools.agent import BUILTIN_AGENTS
@@ -53,6 +76,11 @@ class TestAgentToolCall:
         )
 
         assert result == "Explore: Find command registration."
+        tasks = list_agent_tasks()
+        assert len(tasks) == 1
+        assert tasks[0].agent_type == "Explore"
+        assert tasks[0].status == "completed"
+        assert load_agent_messages(tasks[0].id)[-1]["content"] == result
 
     @pytest.mark.asyncio
     async def test_background_agent_returns_launch_notification(self, monkeypatch):
@@ -79,9 +107,14 @@ class TestAgentToolCall:
 
         assert data["status"] == "async_launched"
         assert data["subagent_type"] == "Explore"
+        assert data["agent_id"].startswith("agent-")
         assert launched["agent_type"] == "Explore"
         assert launched["prompt"] == "Find command registration."
         assert launched["description"] == "Inspect commands"
+        runtime_task = get_agent_task(data["agent_id"])
+        assert runtime_task is not None
+        assert runtime_task.status == "running"
+        assert runtime_task.foreground is False
 
     @pytest.mark.asyncio
     async def test_batch_delegation_runs_each_task(self, monkeypatch):
@@ -106,6 +139,7 @@ class TestAgentToolCall:
 
         assert data["summary"] == {"total": 2, "succeeded": 2, "failed": 0}
         assert data["delegated_tasks"][0]["subagent_type"] == "Explore"
+        assert data["delegated_tasks"][0]["agent_id"].startswith("agent-")
         assert data["delegated_tasks"][0]["success"] is True
         assert data["delegated_tasks"][1]["result"] == "Plan: Plan a /redo command."
 
@@ -142,3 +176,67 @@ class TestAgentToolCall:
         ])
 
         assert "at most 3" in result
+
+
+class TestAgentSendTool:
+    @pytest.mark.asyncio
+    async def test_send_continues_existing_agent_task(self, monkeypatch):
+        runtime_task = create_agent_task(
+            "Explore",
+            "Initial prompt.",
+            "Inspect commands",
+            foreground=True,
+        )
+        update_agent_task(runtime_task.id, status="completed")
+
+        async def fake_run_messages(self, agent_type, config, messages, parent_on_event=None):
+            assert agent_type == "Explore"
+            assert messages[-1] == {"role": "user", "content": "Follow up."}
+            return "continued result"
+
+        monkeypatch.setattr(AgentTool, "_run_agent_messages", fake_run_messages)
+
+        result = await AgentSendTool().call(
+            agent_id=runtime_task.id,
+            message="Follow up.",
+        )
+
+        assert result == "continued result"
+        refreshed = get_agent_task(runtime_task.id)
+        assert refreshed is not None
+        assert refreshed.status == "completed"
+        messages = load_agent_messages(runtime_task.id)
+        assert messages[-2]["content"] == "Follow up."
+        assert messages[-1]["content"] == "continued result"
+
+    @pytest.mark.asyncio
+    async def test_send_rejects_running_agent_task(self):
+        runtime_task = create_agent_task("Explore", "Initial prompt.")
+        update_agent_task(runtime_task.id, status="running")
+
+        result = await AgentSendTool().call(
+            agent_id=runtime_task.id,
+            message="Follow up.",
+        )
+
+        assert "already running" in result
+
+
+class TestAgentTaskTools:
+    @pytest.mark.asyncio
+    async def test_list_and_get_agent_tasks(self):
+        runtime_task = create_agent_task(
+            "Plan",
+            "Plan a feature.",
+            "Plan feature",
+            foreground=False,
+        )
+        update_agent_task(runtime_task.id, status="completed", summary="done")
+
+        listed = await AgentTaskListTool().call()
+        assert runtime_task.id in listed
+        assert "Plan feature" in listed
+
+        payload = json.loads(await AgentTaskGetTool().call(agent_id=runtime_task.id))
+        assert payload["id"] == runtime_task.id
+        assert payload["status"] == "completed"

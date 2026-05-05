@@ -39,7 +39,9 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
 
     # 高级工具（Phase 8）
     from termpilot.tools.ask_user import AskUserQuestionTool
-    from termpilot.tools.agent import AgentTool
+    from termpilot.tools.agent import (
+        AgentTool, AgentSendTool, AgentTaskListTool, AgentTaskGetTool,
+    )
     from termpilot.tools.task import (
         TaskCreateTool, TaskUpdateTool, TaskListTool, TaskGetTool,
     )
@@ -50,6 +52,9 @@ def get_all_tools(mcp_manager: Any | None = None) -> list[Tool]:
     tools.extend([
         AskUserQuestionTool(),
         AgentTool(),
+        AgentSendTool(),
+        AgentTaskListTool(),
+        AgentTaskGetTool(),
         TaskCreateTool(),
         TaskUpdateTool(),
         TaskListTool(),

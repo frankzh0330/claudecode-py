@@ -161,10 +161,30 @@ The new `tasks` field supports up to three independent delegated tasks:
 Phase-one behavior is intentionally serial:
 
 - If `tasks` is present, top-level `subagent_type`, `description`, and `prompt` are ignored.
-- Each task gets its own result entry.
+- Each task is registered as its own `AgentTask` with an `agent_id`, status, transcript path, and result path.
 - One failed task does not stop the remaining tasks.
 - The tool returns a JSON payload with `delegated_tasks` and `summary`.
 - More than three tasks are rejected to prevent runaway delegation.
+
+### AgentTask Runtime
+
+The `agent` tool no longer behaves like a one-off text-returning function. Every spawn creates a persistent `AgentTask`:
+
+- `agent_id`: stable ID for later routing and lookup.
+- `status`: `pending`, `running`, `completed`, `failed`, or `cancelled`.
+- `foreground`: distinguishes blocking foreground runs from background runs.
+- `transcript_path`: stores the sub-agent's own message chain.
+- `result_path`: stores full background-agent output when available.
+
+This is separate from todo-style `task_create` tasks. Todo tasks help the main agent manage a work plan; `AgentTask` records carry the runtime identity of spawned sub-agents.
+
+New runtime tools:
+
+- `agent_send`: send a follow-up to an existing local `AgentTask`.
+- `agent_task_list`: list agent runtime records.
+- `agent_task_get`: inspect one agent runtime record.
+
+Remote agents are represented as an extension point via `AgentTask.execution_mode`, but only the local adapter is implemented today.
 
 ## Built-In Agent Roles
 
@@ -223,7 +243,7 @@ Use for complex autonomous work that is not just planning, exploration, or verif
 
 Allowed tools:
 
-- All normal tools except `agent`, to prevent recursive spawning.
+- All normal tools except `agent`, `agent_send`, and agent task management tools, to prevent recursive orchestration.
 
 ### Custom Agents
 
@@ -339,13 +359,22 @@ If present:
 
 This keeps runtime behavior deterministic and avoids the extra complexity of concurrent permissions, interleaved UI updates, and result ordering.
 
-### 4. Add `list_dir` to Read-Only Agents
+### 4. Introduce AgentTask Runtime
+
+`agent_tasks.py` now handles:
+
+- Persistent `agent_tasks.json` storage.
+- Per-agent transcript JSONL files.
+- Status, summary, error, foreground/background mode, and result-path tracking.
+- `agent_send` continuation from an existing transcript.
+
+### 5. Add `list_dir` to Read-Only Agents
 
 `Explore`, `Plan`, and `Verification` now include `list_dir` in their allowed tools.
 
 This nudges project-understanding tasks away from raw `bash ls` or `find` output and toward structured directory summaries.
 
-### 5. Strengthen Task Tool Descriptions
+### 6. Strengthen Task Tool Descriptions
 
 The descriptions for `task_create`, `task_update`, and `task_list` now explicitly describe:
 
@@ -356,7 +385,7 @@ The descriptions for `task_create`, `task_update`, and `task_list` now explicitl
 
 No task data model changes were required.
 
-### 6. Extend Session Guidance
+### 7. Extend Session Guidance
 
 `get_session_guidance_section()` now gives the model concrete routing rules for:
 
@@ -367,7 +396,7 @@ No task data model changes were required.
 - Batch delegation.
 - Task list usage.
 
-### 7. Update Quiet UI Rendering
+### 8. Update Quiet UI Rendering
 
 The UI now detects `agent` calls with a `tasks` array and renders them as `Delegation` cards. It parses the JSON result to show one compact line per delegated task.
 
@@ -377,6 +406,9 @@ The implementation added targeted tests for:
 
 - `AgentTool.input_schema` includes `tasks`.
 - Single-agent calls remain compatible.
+- Single-agent and batch-agent calls create persistent `AgentTask` records.
+- `agent_send` continues an existing local agent transcript.
+- `agent_task_list` and `agent_task_get` inspect runtime records.
 - Batch delegation runs multiple tasks.
 - Unknown sub-agent types fail per item without stopping the batch.
 - Batch size limits are enforced.
@@ -417,9 +449,13 @@ Batch delegation is serial in phase one. This is intentional. True parallel exec
 
 ### Sub-Agents Are Conservative
 
-Read-only agents remain read-only. `general-purpose` can use broader tools, but recursive `agent` calls are blocked.
+Read-only agents remain read-only. `general-purpose` can use broader tools, but recursive `agent` and `agent_send` calls are blocked.
 
 This avoids uncontrolled spawn trees and keeps the first version easier to reason about.
+
+### Remote Adapter Not Connected Yet
+
+The `AgentTask` model has an `execution_mode`, but `remote` is only an extension point. Polling, archive, restore, and remote notifications still need a dedicated adapter.
 
 ### Delegation Still Depends on Model Compliance
 
@@ -438,6 +474,7 @@ Possible next steps:
 - Add telemetry or eval prompts to measure delegation trigger rate across models.
 - Add worker-style sub-agents with explicit write scopes.
 - Add cancellation support for long-running sub-agents.
+- Connect a `RemoteAgentTask` adapter.
 - Preserve active task state in compaction summaries.
 - Add richer `/details` views for nested delegated results.
 
@@ -452,5 +489,6 @@ The core idea is simple:
 - Use `Explore` for broad codebase understanding.
 - Use `Verification` for correctness checks.
 - Use `agent.tasks` when several independent directions can be delegated together.
+- Use `AgentTask` records to preserve sub-agent identity, status, transcripts, and follow-up routing through `agent_send`.
 
 This makes TermPilot less dependent on the model's spontaneous planning ability and gives weaker planning models a much clearer path toward structured execution.

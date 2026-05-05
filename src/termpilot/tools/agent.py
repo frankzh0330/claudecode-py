@@ -17,9 +17,16 @@ import json
 import logging
 import os
 from typing import Any
-from uuid import uuid4
 
 from termpilot.config import get_config_home
+from termpilot.agent_tasks import (
+    append_agent_message,
+    create_agent_task,
+    get_agent_task,
+    list_agent_tasks,
+    load_agent_messages,
+    update_agent_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,11 +178,14 @@ class AgentTool:
 
         return (
             "Delegate work to a specialized subagent. Think of this as delegate_task: "
-            "spawn an isolated agent for exploration, planning, verification, or a bounded "
-            "multi-step task, then return only that subagent's final summary.\n\n"
+            "spawn an isolated AgentTask for exploration, planning, verification, or a bounded "
+            "multi-step task, then return only that subagent task's final summary.\n\n"
             "Subagents run in their own context with their own tool set. Their intermediate "
             "tool calls are not added to your main context, so delegation is useful when a "
             "side investigation would otherwise fill the main conversation.\n\n"
+            "Each subagent is registered as a persistent AgentTask with an agent_id, status, "
+            "transcript path, and result path. Use agent_send when an existing subagent "
+            "should continue with follow-up context instead of spawning a duplicate.\n\n"
             f"Available agent types and the tools they have access to:\n{agent_list}\n\n"
             "For one task, specify subagent_type, description, and prompt. If subagent_type is "
             "omitted, general-purpose is used. For multiple independent directions, pass a "
@@ -291,6 +301,42 @@ class AgentTool:
     def is_concurrency_safe(self) -> bool:
         return False
 
+    def _create_runtime_task(
+            self,
+            agent_type: str,
+            prompt: str,
+            description: str = "",
+            *,
+            foreground: bool = True,
+            metadata: dict[str, Any] | None = None,
+    ):
+        runtime_task = create_agent_task(
+            agent_type,
+            prompt,
+            description,
+            foreground=foreground,
+            metadata=metadata,
+        )
+        update_agent_task(runtime_task.id, status="running")
+        return runtime_task
+
+    def _finish_runtime_task(
+            self,
+            agent_id: str,
+            result: str,
+            *,
+            result_path: str = "",
+    ) -> None:
+        append_agent_message(agent_id, "assistant", result)
+        status = "failed" if result.startswith("Agent API error:") else "completed"
+        update_agent_task(
+            agent_id,
+            status=status,
+            summary=result[:3000],
+            result_path=result_path,
+            error=result if status == "failed" else "",
+        )
+
     async def call(self, **kwargs: Any) -> str:
         """执行子代理任务。
 
@@ -315,6 +361,13 @@ class AgentTool:
         if not agent_config:
             return f"Error: Unknown agent type '{subagent_type}'"
 
+        runtime_task = self._create_runtime_task(
+            subagent_type,
+            prompt,
+            description,
+            foreground=True,
+            metadata={"source": "agent_tool"},
+        )
         try:
             parent_on_event = kwargs.get("_parent_on_event")
             if parent_on_event:
@@ -326,8 +379,10 @@ class AgentTool:
                 )
             else:
                 result = await self._run_agent(subagent_type, agent_config, prompt)
+            self._finish_runtime_task(runtime_task.id, result)
             return result
         except Exception as e:
+            update_agent_task(runtime_task.id, status="failed", error=str(e))
             return f"Agent error: {e}"
 
     async def _run_batch(self, tasks: list[Any]) -> str:
@@ -362,19 +417,35 @@ class AgentTool:
                 results.append(entry)
                 continue
 
+            runtime_task = self._create_runtime_task(
+                subagent_type,
+                prompt,
+                description,
+                foreground=True,
+                metadata={"source": "agent_tool_batch", "batch_index": index},
+            )
+            entry["agent_id"] = runtime_task.id
+
             agent_config = all_agents.get(subagent_type)
             if not agent_config:
+                update_agent_task(
+                    runtime_task.id,
+                    status="failed",
+                    error=f"Unknown agent type '{subagent_type}'",
+                )
                 entry.update({"success": False, "error": f"Unknown agent type '{subagent_type}'"})
                 results.append(entry)
                 continue
 
             try:
                 result = await self._run_agent(subagent_type, agent_config, prompt)
+                self._finish_runtime_task(runtime_task.id, result)
                 entry.update({
                     "success": not result.startswith("Agent API error:"),
                     "result": result,
                 })
             except Exception as e:
+                update_agent_task(runtime_task.id, status="failed", error=str(e))
                 entry.update({"success": False, "error": str(e)})
             results.append(entry)
 
@@ -411,11 +482,17 @@ class AgentTool:
         if not agent_config:
             return f"Error: Unknown agent type '{subagent_type}'"
 
-        agent_id = f"agent-{uuid4().hex[:8]}"
-        self._launch_async_agent(agent_id, subagent_type, agent_config, prompt, description)
+        runtime_task = self._create_runtime_task(
+            subagent_type,
+            prompt,
+            description,
+            foreground=False,
+            metadata={"source": "agent_tool_background"},
+        )
+        self._launch_async_agent(runtime_task.id, subagent_type, agent_config, prompt, description)
         return json.dumps({
             "status": "async_launched",
-            "agent_id": agent_id,
+            "agent_id": runtime_task.id,
             "subagent_type": subagent_type,
             "description": description,
         }, ensure_ascii=False)
@@ -430,8 +507,16 @@ class AgentTool:
 
         for i, item in enumerate(tasks):
             if not isinstance(item, dict):
+                runtime_task = self._create_runtime_task(
+                    "general-purpose",
+                    "",
+                    f"Invalid batch item {i + 1}",
+                    foreground=False,
+                    metadata={"source": "agent_tool_background_batch", "batch_index": i + 1},
+                )
+                update_agent_task(runtime_task.id, status="failed", error="Task item must be an object.")
                 launched.append({
-                    "agent_id": f"batch-{uuid4().hex[:8]}-{i}",
+                    "agent_id": runtime_task.id,
                     "description": "",
                     "status": "failed",
                     "error": "Task item must be an object.",
@@ -441,11 +526,18 @@ class AgentTool:
             subagent_type = item.get("subagent_type") or "general-purpose"
             description = item.get("description", f"Task {i + 1}")
             prompt = item.get("prompt", "")
-            agent_id = f"batch-{uuid4().hex[:8]}-{i}"
+            runtime_task = self._create_runtime_task(
+                subagent_type,
+                prompt,
+                description,
+                foreground=False,
+                metadata={"source": "agent_tool_background_batch", "batch_index": i + 1},
+            )
 
             if not prompt:
+                update_agent_task(runtime_task.id, status="failed", error="Agent prompt is required.")
                 launched.append({
-                    "agent_id": agent_id,
+                    "agent_id": runtime_task.id,
                     "description": description,
                     "status": "failed",
                     "error": "Agent prompt is required.",
@@ -454,17 +546,22 @@ class AgentTool:
 
             agent_config = all_agents.get(subagent_type)
             if not agent_config:
+                update_agent_task(
+                    runtime_task.id,
+                    status="failed",
+                    error=f"Unknown agent type '{subagent_type}'",
+                )
                 launched.append({
-                    "agent_id": agent_id,
+                    "agent_id": runtime_task.id,
                     "description": description,
                     "status": "failed",
                     "error": f"Unknown agent type '{subagent_type}'",
                 })
                 continue
 
-            self._launch_async_agent(agent_id, subagent_type, agent_config, prompt, description)
+            self._launch_async_agent(runtime_task.id, subagent_type, agent_config, prompt, description)
             launched.append({
-                "agent_id": agent_id,
+                "agent_id": runtime_task.id,
                 "description": description,
                 "status": "launched",
             })
@@ -490,6 +587,7 @@ class AgentTool:
         try:
             result = await self._run_agent(agent_type, config, prompt)
             persisted = persist_agent_result(result, agent_id, agent_type, description)
+            self._finish_runtime_task(agent_id, result, result_path=persisted["filepath"])
             get_main_queue().enqueue(QueuedCommand(
                 mode="task_notification",
                 value={
@@ -506,6 +604,7 @@ class AgentTool:
                 origin="agent",
             ))
         except Exception as e:
+            update_agent_task(agent_id, status="failed", error=str(e))
             get_main_queue().enqueue(QueuedCommand(
                 mode="task_notification",
                 value={
@@ -542,7 +641,22 @@ class AgentTool:
             prompt: str,
             parent_on_event: Any = None,
     ) -> str:
-        """运行子代理。
+        """运行子代理。"""
+        return await self._run_agent_messages(
+            agent_type,
+            config,
+            [{"role": "user", "content": prompt}],
+            parent_on_event=parent_on_event,
+        )
+
+    async def _run_agent_messages(
+            self,
+            agent_type: str,
+            config: dict[str, Any],
+            messages: list[dict[str, Any]],
+            parent_on_event: Any = None,
+    ) -> str:
+        """Run a subagent from an existing message transcript.
 
         使用完整的 query_with_tools 循环：
         1. 构建子代理的 system prompt
@@ -560,8 +674,11 @@ class AgentTool:
         if allowed_tool_names is not None:
             agent_tools = [t for t in all_tools if t.name in allowed_tool_names]
         else:
-            # general-purpose: 所有工具（但不再包含 agent 避免无限嵌套）
-            agent_tools = [t for t in all_tools if t.name != "agent"]
+            # general-purpose: all regular tools, but no agent control tools to avoid nested orchestration.
+            agent_tools = [
+                t for t in all_tools
+                if t.name not in {"agent", "agent_send", "agent_task_list", "agent_task_get"}
+            ]
 
         if not agent_tools:
             agent_tools = all_tools[:6]  # fallback
@@ -578,15 +695,12 @@ class AgentTool:
         if git_status:
             system_prompt += f"\n\n{git_status}"
 
-        # 添加任务描述
-        messages = [{"role": "user", "content": prompt}]
-
         # 调用 API
         client, client_format = create_client()
         model = get_effective_model()
 
-        logger.debug("agent _run_agent: type=%s, tools=%d, prompt=%d chars",
-                     agent_type, len(agent_tools), len(prompt))
+        logger.debug("agent _run_agent: type=%s, tools=%d, messages=%d",
+                     agent_type, len(agent_tools), len(messages))
 
         reported_tools: set[str] = set()
         last_phase = ""
@@ -657,3 +771,164 @@ class AgentTool:
         except Exception as e:
             logger.debug("agent error: %s", e)
             return f"Agent API error: {e}"
+
+
+class AgentSendTool:
+    """Continue an existing persistent agent task."""
+
+    @property
+    def name(self) -> str:
+        return "agent_send"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Send a follow-up message to an existing AgentTask by agent_id. Use this "
+            "when a spawned subagent should continue its previous context instead of "
+            "creating a duplicate agent. Find ids with agent_task_list when the previous "
+            "agent call did not return one directly. This currently supports local "
+            "AgentTask records; remote records are reserved for a future RemoteAgentTask adapter."
+        )
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": (
+                        "The persistent agent task id returned by background/batch agent calls "
+                        "or found with agent_task_list."
+                    ),
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Follow-up instruction or context for the existing agent.",
+                },
+            },
+            "required": ["agent_id", "message"],
+        }
+
+    @property
+    def is_concurrency_safe(self) -> bool:
+        return False
+
+    async def call(self, **kwargs: Any) -> str:
+        agent_id = str(kwargs.get("agent_id", ""))
+        message = str(kwargs.get("message", ""))
+        if not agent_id:
+            return "Error: agent_id is required."
+        if not message:
+            return "Error: message is required."
+
+        task = get_agent_task(agent_id)
+        if not task:
+            return f"Error: AgentTask '{agent_id}' not found."
+        if task.execution_mode != "local":
+            return f"Error: AgentTask '{agent_id}' uses unsupported remote execution mode."
+        if task.status == "running":
+            return f"Error: AgentTask '{agent_id}' is already running."
+
+        agent_config = _get_all_agents().get(task.agent_type)
+        if not agent_config:
+            return f"Error: Unknown agent type '{task.agent_type}'"
+
+        messages = load_agent_messages(agent_id)
+        if not messages:
+            messages = [{"role": "user", "content": task.prompt}]
+        messages.append({"role": "user", "content": message})
+        append_agent_message(agent_id, "user", message)
+        update_agent_task(agent_id, status="running", error="")
+
+        try:
+            result = await AgentTool()._run_agent_messages(task.agent_type, agent_config, messages)
+        except Exception as e:
+            update_agent_task(agent_id, status="failed", error=str(e))
+            return f"Agent error: {e}"
+
+        append_agent_message(agent_id, "assistant", result)
+        status = "failed" if result.startswith("Agent API error:") else "completed"
+        update_agent_task(
+            agent_id,
+            status=status,
+            summary=result[:3000],
+            error=result if status == "failed" else "",
+        )
+        return result
+
+
+class AgentTaskListTool:
+    """List persistent agent runtime tasks."""
+
+    @property
+    def name(self) -> str:
+        return "agent_task_list"
+
+    @property
+    def description(self) -> str:
+        return "List persistent AgentTask runtime records, optionally filtered by status."
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "description": "Optional status filter: pending, running, completed, failed, cancelled.",
+                }
+            },
+        }
+
+    @property
+    def is_concurrency_safe(self) -> bool:
+        return True
+
+    async def call(self, **kwargs: Any) -> str:
+        status = str(kwargs.get("status", ""))
+        tasks = list_agent_tasks(status=status)
+        if not tasks:
+            return "No agent tasks."
+        lines = []
+        for task in tasks:
+            desc = f": {task.description}" if task.description else ""
+            mode = "background" if not task.foreground else "foreground"
+            lines.append(f"[{task.status}] {task.id} {task.agent_type}{desc} ({mode})")
+        return "\n".join(lines)
+
+
+class AgentTaskGetTool:
+    """Get one persistent agent runtime task."""
+
+    @property
+    def name(self) -> str:
+        return "agent_task_get"
+
+    @property
+    def description(self) -> str:
+        return "Get full details for one AgentTask by agent_id, including transcript and result paths."
+
+    @property
+    def input_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "agent_id": {
+                    "type": "string",
+                    "description": "The persistent agent task id.",
+                }
+            },
+            "required": ["agent_id"],
+        }
+
+    @property
+    def is_concurrency_safe(self) -> bool:
+        return True
+
+    async def call(self, **kwargs: Any) -> str:
+        agent_id = str(kwargs.get("agent_id", ""))
+        task = get_agent_task(agent_id)
+        if not task:
+            return f"Error: AgentTask '{agent_id}' not found."
+        return json.dumps(task.to_dict(), ensure_ascii=False, indent=2)
